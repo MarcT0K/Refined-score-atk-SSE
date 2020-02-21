@@ -1,0 +1,122 @@
+import email
+import glob
+import os
+
+from typing import List
+
+import nltk
+import numpy as np
+import pandas as pd
+import tqdm
+
+from nltk.corpus import stopwords
+from nltk.stem.porter import PorterStemmer
+from nltk.tokenize import sent_tokenize, word_tokenize
+
+nltk.download("stopwords")
+nltk.download("punkt")
+
+
+def get_voc_from_one_email(email_text, freq=False):
+    stopwords_list = stopwords.words("english")
+    stopwords_list.extend(["subject", "cc", "from", "to", "forward"])
+    stemmer = PorterStemmer()
+
+    stemmed_word_list = [
+        stemmer.stem(word.lower())
+        for sentence in sent_tokenize(email_text)
+        for word in word_tokenize(sentence)
+        if word.lower() not in stopwords_list and word.isalnum()
+    ]
+    if freq:
+        return nltk.FreqDist(stemmed_word_list)
+    else:
+        return stemmed_word_list
+
+
+## On peut surement réduire et utiliser qu'une seule fonction
+def build_occurence_dataframe(voc: List, freq_dict: dict) -> pd.DataFrame:
+    occ_df = pd.DataFrame([], columns=voc)
+
+    for key in tqdm.tqdm(
+        iterable=list(freq_dict.keys()), desc="Building the occurence matrix"
+    ):
+        word_list = freq_dict[key]
+        row = {voc_word: int(voc_word in word_list) for voc_word in voc}
+        occ_df = occ_df.append(row, ignore_index=True)
+        del freq_dict[key]
+
+    return occ_df
+
+
+def compute_coocc_matrix(occ_df: pd.DataFrame):
+    occ_mat = occ_df.values
+    coocc_mat = np.dot(occ_mat.T, occ_mat)
+    np.fill_diagonal(coocc_mat, 0)
+    return coocc_mat
+
+
+def corpus_to_co_occ_mat(corpus_df, voc_size=0, minimum_freq=1):
+    glob_freq_list = nltk.FreqDist()
+    freq_dict = {}
+    # Word tokenization
+    for row_tuple in tqdm.tqdm(
+        iterable=corpus_df.itertuples(),
+        desc="Extracting corpus vocabulary",
+        total=len(corpus_df),
+    ):
+        freq_dict[row_tuple.filename] = set(
+            get_voc_from_one_email(row_tuple.mail_body, freq=False)
+        )
+        for word in freq_dict[row_tuple.filename]:
+            glob_freq_list[word] += 1
+    del corpus_df
+    print(f"Number of unique words (except the stopwords): {len(glob_freq_list)}")
+
+    # Creation of the vocabulary
+    glob_freq_list = (
+        glob_freq_list.most_common(voc_size)
+        if voc_size
+        else glob_freq_list.most_common()
+    )
+    voc = [word for word, count in glob_freq_list if count >= minimum_freq]
+    print(f"Vocabulary size: {len(voc)}")
+    del glob_freq_list
+
+    # Creation of the co-occurence matrix
+    occ_df = build_occurence_dataframe(voc=voc, freq_dict=freq_dict)
+    del freq_dict
+    print("Creating the word-word co-occurence matrix")
+    return compute_coocc_matrix(occ_df=occ_df), voc
+
+
+def split_df(df, frac=0.5):
+    first_split = df.sample(frac=0.6, random_state=200)
+    second_split = df.drop(first_split.index)
+
+    return first_split, second_split
+
+
+def get_body_from_email(mail):
+    """To get the content from raw email"""
+    msg = email.message_from_string(mail)
+    parts = []
+    for part in msg.walk():
+        if part.get_content_type() == "text/plain":
+            parts.append(part.get_payload())
+    return "".join(parts)
+
+
+def extract_sent_mails_body(maildir_directory="~/research/maildir/") -> pd.DataFrame:
+    # We move in the mail directory
+    os.chdir(os.path.expanduser(maildir_directory))
+
+    mails = glob.glob("./*/_sent_mail/*")
+
+    mail_contents = []
+    for mailfile_path in tqdm.tqdm(iterable=mails, desc="Reading the emails"):
+        with open(mailfile_path, "r") as mailfile:
+            raw_mail = mailfile.read()
+            mail_contents.append(get_body_from_email(raw_mail))
+
+    return pd.DataFrame(data={"filename": mails, "mail_body": mail_contents})
