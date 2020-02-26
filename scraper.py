@@ -64,13 +64,13 @@ def build_occurence_array(voc: List, freq_dict: dict) -> pd.DataFrame:
         ):
             occ_list.append(row)
 
-    return np.array(occ_list)
+    return np.array(occ_list, dtype=np.float64)
 
 
 def compute_coocc_matrix(occ_array: pd.DataFrame):
     coocc_mat = np.dot(occ_array.T, occ_array)
     np.fill_diagonal(coocc_mat, 0)
-    return coocc_mat
+    return coocc_mat.astype(int)
 
 
 def extract_email_voc(ind, df, one_occ_per_doc=True):
