@@ -17,6 +17,8 @@ from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
 from nltk.tokenize import sent_tokenize, word_tokenize
 
+from file_management import build_voc_file, build_cooccurence_bin
+
 nltk.download("stopwords")
 nltk.download("punkt")
 
@@ -124,17 +126,21 @@ def corpus_to_co_occ_mat(corpus_df, voc_size=100, minimum_freq=1):
         if voc_size
         else glob_freq_list.most_common()
     )
-    voc = [word for word, count in glob_freq_list if count >= minimum_freq]
+    voc = {word: count for word, count in glob_freq_list if count >= minimum_freq}
+    build_voc_file(voc.items())
     print(f"Vocabulary size: {len(voc)}")
+
     del glob_freq_list
 
     # Creation of the co-occurence matrix
-    occ_array = build_occurence_array(voc=voc, freq_dict=freq_dict)
+    occ_array = build_occurence_array(voc=list(voc.keys()), freq_dict=freq_dict)
     if not occ_array.any():
         raise ValueError("Occurence array is empty")
     del freq_dict
     print("Creating the word-word co-occurence matrix")
-    return compute_coocc_matrix(occ_array=occ_array), voc
+    coocc_mat = compute_coocc_matrix(occ_array=occ_array)
+    build_cooccurence_bin(coocc_mat)
+    return coocc_mat, voc
 
 
 def split_df(df, frac=0.5):
@@ -155,10 +161,8 @@ def get_body_from_email(mail):
 
 
 def extract_sent_mails_body(maildir_directory="~/research/maildir/") -> pd.DataFrame:
-    # We move in the mail directory
-    os.chdir(os.path.expanduser(maildir_directory))
-
-    mails = glob.glob("./*/_sent_mail/*")
+    path = os.path.expanduser(maildir_directory)
+    mails = glob.glob(f"{path}/*/_sent_mail/*")
 
     mail_contents = []
     for mailfile_path in tqdm.tqdm(iterable=mails, desc="Reading the emails"):
