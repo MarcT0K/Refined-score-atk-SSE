@@ -5,7 +5,7 @@ from ctypes import c_int, c_double
 import numpy as np
 
 
-def build_cooccurence_bin(coocc_mat: np.array, filename="cooccurence.bin"):
+def build_cooccurence_bin(coocc_mat: np.array, filename="cooccurrence.bin"):
     """Produces a binary file using the format expected by the Stanford C implementation
     of GloVe ([word_i:int][word_j:int][cocc_val:double]).
     
