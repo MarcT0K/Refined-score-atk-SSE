@@ -1,19 +1,12 @@
+"""Everything needed to extract Enron dataset emails.
+"""
+
 import email
 import glob
 import os
 
 import pandas as pd
 import tqdm
-
-from common import KeywordExtractor, CooccurenceBuilder
-
-
-def corpus_to_co_occ_mat(corpus_df, voc_size=100, minimum_freq=1):
-    extractor = KeywordExtractor(corpus_df, voc_size, minimum_freq)
-    print("Creating the word-word co-occurence matrix")
-    coocc_build = CooccurenceBuilder(extractor.occ_array, extractor.voc)
-    coocc_build.generate_glove_files()  # TODO custom file names
-    return coocc_build.coocc_mat, coocc_build.voc
 
 
 def split_df(df, frac=0.5):
