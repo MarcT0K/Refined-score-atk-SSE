@@ -164,11 +164,11 @@ class KeywordExtractor:
         return np.array(occ_list, dtype=np.float64)
 
 
-class CooccurenceBuilder:
+class GloveWordEmbedding:
     def __init__(
         self,
         vocab_filename: str = "vocab.txt",
-        vector_filename: str = "vectors.txt",
+        vector_filename: str = "vectors",
         voc_with_occ=None,
         occ_array=None,
         query_ans_dict=None,
@@ -206,14 +206,20 @@ class CooccurenceBuilder:
                 for doc_id in query_ans_dict[cipher]:
                     occ_array[doc_id, kw_ind] = 1
 
+        logger.info("Computing co-occurence matrix")
         self.coocc_mat = np.dot(occ_array.T, occ_array).astype(int)
         np.fill_diagonal(self.coocc_mat, 0)
+
+    def __call__(self, *args, **kwargs):
+        self.generate_glove_files()
+        self.launch_glove(*args, **kwargs)
 
     def get_voc_dict(self):
         return {word: occ for word, occ in self.sorted_voc}
 
     def generate_glove_files(self):
-        build_voc_file(self.sorted_voc)
+        logger.info("Generating files used by GloVe")
+        build_voc_file(self.sorted_voc, self.vocab_filename)
         build_cooccurence_bin(self.coocc_mat)
 
     def launch_glove(
@@ -224,15 +230,23 @@ class CooccurenceBuilder:
         mem_available=1.0,
     ):
         path = os.path.expanduser(glove_dir)
-        os.system(
+        shuffle_return_code = os.system(
             f"{path}/build/shuffle -memory {mem_available} -verbose 2 "
             f"< cooccurrence.bin > cooccurrence.shuf.bin"
         )
-        subprocess.run(
+        if shuffle_return_code != 0:
+            logger.error(
+                "We had a problem during matrix shuffling "
+                f"(return code = {shuffle_return_code})"
+            )
+            raise OSError("Couldn't shuffle cooccurence matrix")
+
+        logger.info("Launching GloVe")
+        proc_return = subprocess.run(
             [
                 f"{path}/build/glove",
                 "-save-file",
-                self.vector_filename,
+                self.vector_filename,  # It will create one binary and one text file
                 "-threads",
                 "8",
                 "-input-file",
@@ -251,4 +265,10 @@ class CooccurenceBuilder:
                 "2",
             ]
         )
+        if proc_return.returncode != 0:
+            logger.error(
+                "We had a problem during GloVe "
+                f"(return code = {proc_return.returncode})"
+            )
+            raise OSError("Couldn't shuffle cooccurence matrix")
 
