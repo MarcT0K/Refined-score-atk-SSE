@@ -8,7 +8,7 @@ import numpy as np
 import scipy.stats as stats
 import tqdm
 
-from common import KeywordExtractor, poolcontext
+from .common import KeywordExtractor, poolcontext
 
 logger = colorlog.getLogger("Keyword Alignment Attack")
 

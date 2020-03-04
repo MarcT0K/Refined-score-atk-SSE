@@ -18,7 +18,7 @@ from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
 from nltk.tokenize import sent_tokenize, word_tokenize
 
-from glove_file_management import build_voc_file, build_cooccurence_bin
+from .glove_file_management import build_voc_file, build_cooccurence_bin
 
 nltk.download("stopwords")
 nltk.download("punkt")

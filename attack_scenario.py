@@ -2,9 +2,9 @@ import logging
 
 import colorlog
 
-from common import KeywordExtractor, GloveWordEmbedding, setup_logger
-from email_extraction import split_df, extract_sent_mail_contents
-from query_generator import QueryResultExtractor
+from src.common import KeywordExtractor, GloveWordEmbedding, setup_logger
+from src.email_extraction import split_df, extract_sent_mail_contents
+from src.query_generator import QueryResultExtractor
 
 logger = colorlog.getLogger("Keyword Alignment Attack")
 
