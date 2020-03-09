@@ -172,9 +172,11 @@ class GloveWordEmbedding:
         voc_with_occ=None,
         occ_array=None,
         query_ans_dict=None,
+        vector_size: int = 50,
     ):
         self.vocab_filename = vocab_filename
         self.vector_filename = vector_filename
+        self.vector_size = vector_size
 
         if (
             (occ_array is not None or voc_with_occ is not None)
@@ -213,6 +215,7 @@ class GloveWordEmbedding:
     def __call__(self, *args, **kwargs):
         self.generate_glove_files()
         self.launch_glove(*args, **kwargs)
+        self.complete_vector_file()
 
     def get_voc_dict(self):
         return {word: occ for word, occ in self.sorted_voc}
@@ -222,12 +225,13 @@ class GloveWordEmbedding:
         build_voc_file(self.sorted_voc, self.vocab_filename)
         build_cooccurence_bin(self.coocc_mat)
 
+    def generate_useless_muse_dico(self):
+        with open("dico.txt", "w") as dico_file:
+            for word, _occ in self.sorted_voc:
+                dico_file.write(f"{word}\t{word}\n")
+
     def launch_glove(
-        self,
-        glove_dir="~/research/code/GloVe",
-        vector_size=50,
-        iter_nb=30,
-        mem_available=1.0,
+        self, glove_dir="~/research/code/GloVe", iter_nb=100, mem_available=1.0
     ):
         path = os.path.expanduser(glove_dir)
         shuffle_return_code = os.system(
@@ -256,7 +260,7 @@ class GloveWordEmbedding:
                 "-iter",
                 f"{iter_nb}",
                 "-vector-size",
-                f"{vector_size}",
+                f"{self.vector_size}",
                 "-binary",
                 "2",
                 "-vocab-file",
@@ -271,4 +275,14 @@ class GloveWordEmbedding:
                 f"(return code = {proc_return.returncode})"
             )
             raise OSError("Couldn't shuffle cooccurence matrix")
+
+    def complete_vector_file(self):
+        """Completes the vector file so it is suitable for MUSE algorithm.
+        """
+        with open(f"{self.vector_filename}.txt", "r") as vect_txt:
+            with open("temp_vec.txt", "w") as new_file:
+                new_file.write(f"{len(self.sorted_voc)} {self.vector_size}\n")
+                for line in vect_txt:
+                    new_file.write(line)
+        os.rename("temp_vec.txt", f"{self.vector_filename}.txt")
 
