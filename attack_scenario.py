@@ -14,7 +14,7 @@ def plaintext_embedding_phase(corpus_df, voc_size=100, minimum_freq=1):
 
     word_embedder = GloveWordEmbedding(
         vocab_filename="plain_voc.txt",
-        vector_filename="plain_vector",
+        vector_filename="plain",
         occ_array=extractor.occ_array,
         voc_with_occ=extractor.sorted_voc,
     )
@@ -25,16 +25,24 @@ def plaintext_embedding_phase(corpus_df, voc_size=100, minimum_freq=1):
 
 
 def ciphertext_embedding_phase(
-    corpus_df, voc_size=100, minimum_freq=1, queryset_size=1000
+    corpus_df, voc_size=100, minimum_freq=1, queryset_size=1000, L1=False
 ):
     logger.info("START CIPHERTEXT EMBEDDING PHASE")
     extractor = QueryResultExtractor(corpus_df, voc_size, minimum_freq)
 
-    word_embedder = GloveWordEmbedding(
-        vocab_filename="cipher_voc.txt",
-        vector_filename="cipher_vector",
-        query_ans_dict=extractor.get_query_answer(size=queryset_size),
-    )
+    if L1:
+        word_embedder = GloveWordEmbedding(
+            vocab_filename="cipher_voc.txt",
+            vector_filename="cipher",
+            occ_array=extractor.occ_array,
+            voc_with_occ=extractor.sorted_voc,
+        )
+    else:
+        word_embedder = GloveWordEmbedding(
+            vocab_filename="cipher_voc.txt",
+            vector_filename="cipher",
+            query_ans_dict=extractor.get_query_answer(size=queryset_size),
+        )
     word_embedder()
     logger.info("END CIPHERTEXT EMBEDDING PHASE")
     return word_embedder.coocc_mat, word_embedder.sorted_voc
@@ -55,7 +63,10 @@ def attack_enron(*args, **kwargs):
     queryset_size = kwargs.get("queryset_size", 1000)
     logger.debug(f"Ciphertext vocabulary size: {ciphertext_voc_size}")
     logger.debug(f"Plaintext vocabulary size: {plaintext_voc_size}")
-    logger.debug(f"Queryset size: {queryset_size}")
+    if kwargs.get("L1"):
+        logger.debug("L1 Scheme")
+    else:
+        logger.debug(f"L0 Scheme => Queryset size: {queryset_size}")
 
     logger.info("ATTACK BEGINS")
 
@@ -63,7 +74,10 @@ def attack_enron(*args, **kwargs):
 
     plaintext_embedding_phase(similar_docs, plaintext_voc_size)
     ciphertext_embedding_phase(
-        corpus_df=stored_docs, voc_size=ciphertext_voc_size, queryset_size=queryset_size
+        corpus_df=stored_docs,
+        voc_size=ciphertext_voc_size,
+        queryset_size=queryset_size,
+        L1=kwargs.get("L1"),
     )
 
     unsupervised_translation()
@@ -83,6 +97,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--queryset-size", type=int, default=1000, help="Fake queryset size"
+    )
+    parser.add_argument(
+        "--L1",
+        default=False,
+        action="store_true",
+        help="Whether the server has an L1 scheme or not",
     )
     parser.add_argument(
         "--attack-dataset",

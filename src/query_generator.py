@@ -1,6 +1,4 @@
 """Functions simulating the result harvesting of an attacker"""
-import multiprocessing
-
 from typing import List, Tuple
 
 import colorlog
@@ -8,9 +6,10 @@ import numpy as np
 import scipy.stats as stats
 import tqdm
 
-from .common import KeywordExtractor, poolcontext
+from .common import KeywordExtractor
 
 logger = colorlog.getLogger("Keyword Alignment Attack")
+
 
 class QueryResultExtractor(KeywordExtractor):
     def __init__(self, *args, **kwargs):
@@ -52,15 +51,11 @@ class QueryResultExtractor(KeywordExtractor):
             dict -- trapdoor_id: [document_ids]
             maximum size is the size of the random sample
         """
-        sample = self._bounded_zipf.rvs(size=size) - 1
-        unique_sample = set(sample)
-        logger.debug(f"Number of duplicate queries: {len(sample) - len(unique_sample)}")
+        sample_list = self._bounded_zipf.rvs(size=size) - 1
+        unique_samples = set(sample_list)
+        logger.debug(f"Number of duplicate queries: {len(sample_list) - len(unique_samples)}")
         query_answer_dict = {}
-        with poolcontext(processes=multiprocessing.cpu_count()) as pool:
-            for couple in tqdm.tqdm(
-                pool.imap_unordered(self._extract_query_result, unique_sample),
-                desc="Generating query-answer couples",
-                total=len(unique_sample),
-            ):
-                query_answer_dict[couple[0]] = couple[1]
+        for sample in tqdm.tqdm(iterable=unique_samples, desc="Generating fake queries"):
+            kw, val = self._extract_query_result(sample)
+            query_answer_dict[kw] = val
         return query_answer_dict

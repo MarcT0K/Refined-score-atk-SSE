@@ -17,6 +17,7 @@ import tqdm
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
 from nltk.tokenize import sent_tokenize, word_tokenize
+from sklearn.decomposition import PCA
 
 from .glove_file_management import build_voc_file, build_cooccurence_bin
 
@@ -172,7 +173,7 @@ class GloveWordEmbedding:
         voc_with_occ=None,
         occ_array=None,
         query_ans_dict=None,
-        vector_size: int = 50,
+        vector_size: int = 20,
     ):
         self.vocab_filename = vocab_filename
         self.vector_filename = vector_filename
@@ -212,10 +213,13 @@ class GloveWordEmbedding:
         self.coocc_mat = np.dot(occ_array.T, occ_array).astype(int)
         np.fill_diagonal(self.coocc_mat, 0)
 
-    def __call__(self, *args, **kwargs):
-        self.generate_glove_files()
-        self.launch_glove(*args, **kwargs)
-        self.complete_vector_file()
+    def __call__(self, method="PCA", *args, **kwargs):
+        if method=="GloVe":
+            self.generate_glove_files()
+            self.launch_glove(*args, **kwargs)
+            self.complete_vector_file()
+        else:
+            self.launch_pca()
 
     def get_voc_dict(self):
         return {word: occ for word, occ in self.sorted_voc}
@@ -229,6 +233,20 @@ class GloveWordEmbedding:
         with open("dico.txt", "w") as dico_file:
             for word, _occ in self.sorted_voc:
                 dico_file.write(f"{word}\t{word}\n")
+
+    def launch_pca(self):
+        ## PCA
+        pca = PCA(n_components=self.vector_size)
+        vectors = pca.fit_transform(self.coocc_mat)
+        assert vectors.shape == (len(self.sorted_voc), self.vector_size)
+        ## Generate vector file
+        with open(f"{self.vector_filename}.txt", "w") as vect_txt:
+            vect_txt.write(f"{len(self.sorted_voc)} {self.vector_size}\n")
+            for i, (word, _occ) in enumerate(self.sorted_voc):
+                vect_txt.write(word)
+                for val in vectors[i,:]:
+                    vect_txt.write(f" {val}")
+                vect_txt.write("\n")
 
     def launch_glove(
         self, glove_dir="~/research/code/GloVe", iter_nb=100, mem_available=1.0
