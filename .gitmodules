@@ -1,9 +1,0 @@
-[submodule "GloVe"]
-	path = GloVe
-	url = https://github.com/stanfordnlp/GloVe
-[submodule "MUSE"]
-	path = MUSE
-	url = https://github.com/facebookresearch/MUSE
-[submodule "Non-adversarialTranslation"]
-	path = Non-adversarialTranslation
-	url = https://github.com/facebookresearch/Non-adversarialTranslation
