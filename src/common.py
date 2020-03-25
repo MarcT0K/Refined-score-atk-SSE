@@ -1,6 +1,7 @@
 import logging
 import multiprocessing
 import os
+import random
 import subprocess
 
 from functools import reduce
@@ -22,7 +23,7 @@ from sklearn.decomposition import PCA
 nltk.download("stopwords")
 nltk.download("punkt")
 
-logger = colorlog.getLogger("Keyword Alignment Attack")
+logger = colorlog.getLogger("Keyword Regression Attack")
 
 
 def setup_logger():
@@ -161,3 +162,12 @@ class KeywordExtractor:
                 occ_list.append(row)
 
         return np.array(occ_list, dtype=np.float64)
+
+
+def sorted_to_dict(sorted_voc):
+    return {word: occ for word, occ in sorted_voc}
+
+
+def generate_known_queries(plain_wordlist, trapdoor_wordlist, nb_queries):
+    candidates = set(plain_wordlist).intersection(trapdoor_wordlist)
+    return {word: word for word in random.sample(candidates, nb_queries)}

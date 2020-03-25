@@ -3,4 +3,5 @@ pandas
 nltk
 numpy
 scipy
+scikit-learn
 tqdm
