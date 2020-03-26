@@ -9,7 +9,7 @@ from src.common import (
 )
 from src.email_extraction import split_df, extract_sent_mail_contents
 from src.query_generator import QueryResultExtractor
-from src.regressor import PlainCipherRegressor
+from src.regressor import PlainCipherRegressor, PlainCipherAssigner
 
 logger = colorlog.getLogger("Keyword Regression Attack")
 
@@ -39,7 +39,7 @@ def attack_enron(*args, **kwargs):
     real_extractor = QueryResultExtractor(stored_docs, ciphertext_voc_size, 1)
     query_array, query_voc = real_extractor.get_fake_queries(queryset_size)
 
-    regressor = PlainCipherRegressor(
+    assign = PlainCipherAssigner(
         plain_occ_array=similar_extractor.occ_array,
         plain_sorted_voc=similar_extractor.sorted_voc,
         cipher_occ_array=query_array,
@@ -50,8 +50,8 @@ def attack_enron(*args, **kwargs):
             nb_queries=int(len(real_extractor.sorted_voc) * known_queries_ratio),
         ),
     )
-    regressor.fit()
-    return regressor
+
+    return assign
 
 
 if __name__ == "__main__":
