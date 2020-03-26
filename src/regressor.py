@@ -77,6 +77,8 @@ class PlainCipherRegressor:
         # } TODO: see if we need to extract the comparison points
         self._known_queries_for_training = known_queries
 
+        self.prob_diff_std = 1.0
+
     def _run_pca(self, pca_dimensions):
         pca = PCA(n_components=pca_dimensions)
         self.plain_reduced = pca.fit_transform(self.plain_coocc)
@@ -127,6 +129,8 @@ class PlainCipherRegressor:
             instance = self._word_pair_to_instance(plain, cipher)
             X_train = np.append(X_train, [instance], axis=0)
             y_train = np.append(y_train, res)
+        self.prob_diff_std = np.std(X_train[:,-1])
+        X_train[:,-1] = X_train[:,-1] / self.prob_diff_std
 
         return X_train, y_train
 
@@ -135,9 +139,12 @@ class PlainCipherRegressor:
         cipher_ind = self.cipher_voc_info[cipher]["vector_ind"]
 
         prob_diff = (
-            self.plain_voc_info[plain]["word_prob"]
-            - self.cipher_voc_info[cipher]["word_prob"]
-        )
+            # NB: j'essaie l'inverse pour donner plus d'importance à cette var
+            # => peut-être que surdimensionné cette var est bien => faire attention à pas rendre le reste
+            # insignifiant
+             self.plain_voc_info[plain]["word_prob"]
+             - self.cipher_voc_info[cipher]["word_prob"]
+         ) / self.prob_diff_std
 
         cos_sim_diffs = []
         for known_plain_ind, known_cipher_ind in self._known_ind_for_comp:
@@ -179,3 +186,8 @@ class PlainCipherRegressor:
 
         for cipher_kw in self.cipher_voc_info.keys():
             pass
+
+            # PB d'echelle entre la prob et les cosine => voir pour une normalisation
+            # Est-ce que j'ai besoin d'apprendre les poids?
+            # On pourrait faire des tests statistiques successifs => on utilise les known queries
+            # pour estimer le bruit
