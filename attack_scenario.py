@@ -9,7 +9,7 @@ from src.common import (
 )
 from src.email_extraction import split_df, extract_sent_mail_contents
 from src.query_generator import QueryResultExtractor
-from src.regressor import PlainCipherRegressor, PlainCipherAssigner
+from src.assigner import PlainCipherAssigner
 
 logger = colorlog.getLogger("Keyword Regression Attack")
 

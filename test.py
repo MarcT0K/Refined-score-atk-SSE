@@ -5,6 +5,7 @@ from sklearn.metrics.pairwise import cosine_similarity as cos_sim
 to_iter = (
     list(assign.cipher_voc_info.keys())[-10:] + list(assign.cipher_voc_info.keys())[:10]
 )
+to_iter = list(set(assign.cipher_voc_info.keys()).intersection(assign.plain_voc_info.keys()))
 prediction = {}
 for cipher_kw in tqdm.tqdm(
     iterable=to_iter, desc=f"Evaluating each plain-cipher pairs"
@@ -34,7 +35,10 @@ for cipher_kw in tqdm.tqdm(
         prob_diff = plain_prob - cipher_prob
         cocc_diff = plain_coocc - cipher_coocc
         instance = np.append(cocc_diff, prob_diff) ** 2
-        score = 1 / np.max(instance[:-1]) + 1 / instance[-1]
+        score = - np.log(np.max(instance[:-1])) - 0*np.log(instance[-1])  # 0.000001*
         score_list.append((instance, score, plain_kw))
     score_list.sort(key=lambda tup: tup[1])
     prediction[cipher_kw] = score_list
+
+match_list = [((prediction[word][-1][2] == word), word) for word in prediction.keys()]
+acc = np.mean([(prediction[word][-1][2] == word) for word in prediction.keys()])
