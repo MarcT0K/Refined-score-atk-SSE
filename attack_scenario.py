@@ -47,7 +47,7 @@ def attack_enron(*args, **kwargs):
         known_queries=generate_known_queries(
             plain_wordlist=sorted_to_dict(similar_extractor.sorted_voc).keys(),
             trapdoor_wordlist=sorted_to_dict(query_voc).keys(),
-            nb_queries=int(len(real_extractor.sorted_voc) * known_queries_ratio),
+            nb_queries=int(queryset_size * known_queries_ratio),
         ),
     )
 
