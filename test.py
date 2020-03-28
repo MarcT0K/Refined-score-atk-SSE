@@ -29,7 +29,7 @@ for cipher_kw in tqdm.tqdm(
                 assign.plain_coocc[
                     plain_ind, assign.plain_voc_info[known_plain]["vector_ind"]
                 ]
-                for known_plain in assign._known_queries.values()
+                for known_plain in assign._known_queries.keys()
             ]
         )
         prob_diff = plain_prob - cipher_prob

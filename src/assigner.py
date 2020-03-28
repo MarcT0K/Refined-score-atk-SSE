@@ -8,16 +8,14 @@ import colorlog
 import numpy as np
 import tqdm
 
-from sklearn.decomposition import PCA
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics.pairwise import cosine_similarity as cos_sim
-
 from .common import poolcontext
 
 logger = colorlog.getLogger("Keyword Regression Attack")
 
 
 class PlainCipherAssigner:
+    _norm = np.max  #  It is the Chebyshev norm (also called infinity or uniform norm
+
     def __init__(
         self,
         plain_occ_array,
@@ -75,13 +73,17 @@ class PlainCipherAssigner:
 
         return self.plain_number_docs * nb_doc_ratio_estimator
 
+    def set_norm(self, norm_function):
+        self._norm = norm_function
+
     def _sub_pred(self, ind, cipher_word_list, k):
         prediction = []
         for cipher_kw in tqdm.tqdm(
-            iterable=to_iter, desc=f"Core {ind}: Evaluating each plain-cipher pairs"
+            iterable=cipher_word_list,
+            desc=f"Core {ind}: Evaluating each plain-cipher pairs",
+            position=ind,
         ):
             cipher_ind = self.cipher_voc_info[cipher_kw]["vector_ind"]
-            cipher_prob = self.cipher_voc_info[cipher_kw]["word_prob"]
             cipher_coocc = np.array(
                 [
                     self.cipher_coocc[
@@ -92,23 +94,22 @@ class PlainCipherAssigner:
             )
             score_list = []
             for plain_kw in self.plain_voc_info.keys():
-                plain_prob = self.plain_voc_info[plain_kw]["word_prob"]
                 plain_ind = self.plain_voc_info[plain_kw]["vector_ind"]
                 plain_coocc = np.array(
                     [
                         self.plain_coocc[
                             plain_ind, self.plain_voc_info[known_plain]["vector_ind"]
-                        ]
-                        for known_plain in self._known_queries.values()
+                        ] #  Access cost can be optimized by storing known indices lists
+                        for known_plain in self._known_queries.keys()
                     ]
                 )
-                prob_diff = plain_prob - cipher_prob
-                cocc_diff = plain_coocc - cipher_coocc
-                instance = np.append(cocc_diff, prob_diff) ** 2
-                score = -np.log(np.max(instance[:-1])) - 0 * np.log(
-                    instance[-1]
-                )  # 0.000001*
-                score_list.append((instance, score, plain_kw))
+                cocc_diff = (plain_coocc - cipher_coocc) ** 2
+                norm = self._norm(cocc_diff)
+                if norm:
+                    score = -np.log(norm)
+                else:
+                    score = np.inf  # perfect match
+                score_list.append((score, plain_kw))
             score_list.sort(key=lambda tup: tup[0])
             best_candidates = [word for _score, word in score_list[-k:]]
             prediction.append((cipher_kw, best_candidates))
@@ -128,6 +129,7 @@ class PlainCipherAssigner:
 
     def accuracy(self, k=3, eval_dico=None):
         # TODO: utiliser le target-weapon assignement pour avoir une meilleure attribution
+        # On pourra rafiner en se basant sur l'inertie par rapport aux scores
         assert k > 0
         assert self.cipher_voc_info
 

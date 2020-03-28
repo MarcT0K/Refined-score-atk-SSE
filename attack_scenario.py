@@ -38,7 +38,7 @@ def attack_enron(*args, **kwargs):
     logger.info("Extracting keywords from stored documents.")
     real_extractor = QueryResultExtractor(stored_docs, ciphertext_voc_size, 1)
     query_array, query_voc = real_extractor.get_fake_queries(queryset_size)
-
+    # TODO: use ID for query voc words
     assign = PlainCipherAssigner(
         plain_occ_array=similar_extractor.occ_array,
         plain_sorted_voc=similar_extractor.sorted_voc,
