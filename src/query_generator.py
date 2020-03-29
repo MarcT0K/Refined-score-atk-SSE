@@ -39,6 +39,9 @@ class QueryResultExtractor(KeywordExtractor):
             )
             queries_remaining = size - len(sample_set)
         sample_list = list(sample_set)  # Cast needed to index np.array
+        # sample_list is sorted since a set of integers is sorted
         query_voc = [self.sorted_voc[ind] for ind in sample_list]
-
-        return self.occ_array[:, sample_list], query_voc
+        query_columns = self.occ_array[:, sample_list]
+        # i-th element of column is 0/1 depending if the i-th document includes the keyword
+        return query_columns[~np.all(query_columns == 0, axis=1)], query_voc
+        # We remove every line containing only zeros, so we hide the nb of documents stored

@@ -18,7 +18,6 @@ import tqdm
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
 from nltk.tokenize import sent_tokenize, word_tokenize
-from sklearn.decomposition import PCA
 
 nltk.download("stopwords")
 nltk.download("punkt")
@@ -27,6 +26,7 @@ logger = colorlog.getLogger("Keyword Regression Attack")
 
 
 def setup_logger():
+    logger.handlers = []  # Reset handlers
     handler = colorlog.StreamHandler()
     handler.setFormatter(
         colorlog.ColoredFormatter(
@@ -162,10 +162,6 @@ class KeywordExtractor:
                 occ_list.append(row)
 
         return np.array(occ_list, dtype=np.float64)
-
-
-def sorted_to_dict(sorted_voc):
-    return {word: occ for word, occ in sorted_voc}
 
 
 def generate_known_queries(plain_wordlist, trapdoor_wordlist, nb_queries):

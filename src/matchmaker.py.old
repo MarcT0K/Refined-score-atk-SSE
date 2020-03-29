@@ -1,3 +1,10 @@
+"""
+This code is an old version. The class has been recoded from scratch
+to be sure there was no bias in the algo that could increase artificially
+the recovery rate. It was to have a kind of reproduction of the experience.
+
+Note that the new version is optimized (prediction is 4 times quicker).
+"""
 import multiprocessing
 import random
 
@@ -14,8 +21,6 @@ logger = colorlog.getLogger("Keyword Regression Attack")
 
 
 class PlainCipherAssigner:
-    _norm = np.max  #  It is the Chebyshev norm (also called infinity or uniform norm
-
     def __init__(
         self,
         plain_occ_array,
@@ -23,26 +28,28 @@ class PlainCipherAssigner:
         plain_sorted_voc: List[Tuple[str, int]],
         known_queries: Dict[str, str],
         cipher_sorted_voc: Optional[List[Tuple[str, int]]] = None,
+        norm_ord=2,  # L2 (Euclidean norm)
     ):
+        self.set_norm_ord(norm_ord=norm_ord)
+
         if not known_queries:
-            # TODO We could generate the known queries in this class
             raise ValueError("Known queries are mandatory.")
         if len(known_queries.values()) != len(set(known_queries.values())):
-            raise ValueError("Cipher values must be unique.")
+            raise ValueError("Several trapdoors are linked to the same keyword.")
 
-        self._known_queries = known_queries
+        self._known_queries = known_queries  # Keys: cipher, Values: plain
 
         self.plain_number_docs = plain_occ_array.shape[0]
         self.cipher_number_docs = self.__estimate_cipher_size(
             dict(plain_sorted_voc), dict(cipher_sorted_voc)
         )
-        # Background knowledge
+
         self.plain_voc_info = {
             word: {"vector_ind": ind, "word_prob": occ / self.plain_number_docs}
             for ind, (word, occ) in enumerate(plain_sorted_voc)
         }
         self.cipher_voc_info = (
-            {  # "word" can be either the plain word or the trapdoor
+            {  # "word" can be either the keyword or the trapdoor token
                 word: {"vector_ind": ind, "word_prob": occ / self.cipher_number_docs}
                 for ind, (word, occ) in enumerate(cipher_sorted_voc)
             }
@@ -67,14 +74,14 @@ class PlainCipherAssigner:
         nb_doc_ratio_estimator = np.mean(
             [
                 cipher_voc[cipher] / plain_voc[plain]
-                for plain, cipher in self._known_queries.items()
+                for cipher, plain in self._known_queries.items()
             ]
         )
 
         return self.plain_number_docs * nb_doc_ratio_estimator
 
-    def set_norm(self, norm_function):
-        self._norm = norm_function
+    def set_norm_ord(self, norm_ord):
+        self._norm = partial(np.linalg.norm, ord=norm_ord)
 
     def _sub_pred(self, ind, cipher_word_list, k):
         prediction = []
@@ -89,7 +96,7 @@ class PlainCipherAssigner:
                     self.cipher_coocc[
                         cipher_ind, self.cipher_voc_info[known_cipher]["vector_ind"]
                     ]
-                    for known_cipher in self._known_queries.values()
+                    for known_cipher in self._known_queries.keys()
                 ]
             )
             score_list = []
@@ -99,16 +106,16 @@ class PlainCipherAssigner:
                     [
                         self.plain_coocc[
                             plain_ind, self.plain_voc_info[known_plain]["vector_ind"]
-                        ] #  Access cost can be optimized by storing known indices lists
-                        for known_plain in self._known_queries.keys()
+                        ]  #  Access cost can be optimized by storing known indices lists
+                        for known_plain in self._known_queries.values()
                     ]
                 )
-                cocc_diff = (plain_coocc - cipher_coocc) ** 2
+                cocc_diff = plain_coocc - cipher_coocc
                 norm = self._norm(cocc_diff)
                 if norm:
                     score = -np.log(norm)
                 else:
-                    score = np.inf  # perfect match
+                    score = np.inf  # Perfect match
                 score_list.append((score, plain_kw))
             score_list.sort(key=lambda tup: tup[0])
             best_candidates = [word for _score, word in score_list[-k:]]
@@ -127,17 +134,13 @@ class PlainCipherAssigner:
             prediction = dict(reduce(lambda x, y: x + y, results))
         return prediction
 
-    def accuracy(self, k=3, eval_dico=None):
-        # TODO: utiliser le target-weapon assignement pour avoir une meilleure attribution
-        # On pourra rafiner en se basant sur l'inertie par rapport aux scores
+    def accuracy(self, k=1, eval_dico=None):
         assert k > 0
         assert self.cipher_voc_info
 
         if eval_dico is None:
             logger.warning("Experimental setup is enabled.")
-            # Cipher vocabulary has not truly been ciphered.
-            # It makes the accuracy easier to compute since we just
-            # need to compare the guess with the corresponding keyword
+            # Cipher vocabulary has not truly been ciphered/hashed.
             local_eval_dico = {kw: kw for kw in self.cipher_voc_info.keys()}
         else:
             local_eval_dico = eval_dico

@@ -10,9 +10,8 @@ import tqdm
 
 
 def split_df(df, frac=0.5):
-    first_split = df.sample(frac=0.6, random_state=200)
+    first_split = df.sample(frac=frac)
     second_split = df.drop(first_split.index)
-
     return first_split, second_split
 
 
@@ -26,7 +25,7 @@ def get_body_from_email(mail):
     return "".join(parts)
 
 
-def extract_sent_mail_contents(maildir_directory="~/research/maildir/") -> pd.DataFrame:
+def extract_sent_mail_contents(maildir_directory="../maildir/") -> pd.DataFrame:
     path = os.path.expanduser(maildir_directory)
     mails = glob.glob(f"{path}/*/_sent_mail/*")
 
