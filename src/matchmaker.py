@@ -82,53 +82,50 @@ class KeywordTrapdoorMatchmaker:
     def set_norm_ord(self, norm_ord):
         self._norm = partial(np.linalg.norm, ord=norm_ord)
 
-    def _sub_pred(self, ind, td_list, k, include_score=False):
-        prediction = []
-        for trapdoor in tqdm.tqdm(
-            iterable=td_list,
-            desc=f"Core {ind}: Evaluating each plain-cipher pairs",
-            position=ind,
-        ):
-            try:
-                trapdoor_ind = self.td_voc_info[trapdoor]["vector_ind"]
-            except KeyError:
-                logger.warning(f"Unknown trapdoor: {trapdoor}")
-                prediction.append((trapdoor, []))
-                continue
-            trapdoor_vec = self.td_reduced_coocc[trapdoor_ind]
-
-            score_list = []
-            for keyword, kw_info in self.kw_voc_info.items():
-                keyword_vec = self.kw_reduced_coocc[kw_info["vector_ind"]]
-                vec_diff = keyword_vec - trapdoor_vec
-                td_kw_distance = self._norm(vec_diff)
-                if td_kw_distance:
-                    score = -np.log(td_kw_distance)
-                else:
-                    score = np.inf
-                score_list.append((keyword, score))
-            score_list.sort(key=lambda tup: tup[1])
+    def __scores_to_cluster(
+        self,
+        sorted_scores,
+        cluster_max_size=20,
+        cluster_min_sensitivity=0,
+        include_cluster_sep=False,
+        include_score=False,
+    ):
+        sorted_scores = sorted_scores[-cluster_max_size:]
+        diff_list = [
+            (i + 1, sorted_scores[i + 1][1] - score[1])
+            for i, score in enumerate(sorted_scores[:-1])
+        ]
+        ind_max_leap, maximum_leap = max(diff_list, key=lambda tup: tup[1])
+        if maximum_leap > cluster_min_sensitivity:
             best_candidates = [
                 ((kw, _score) if include_score else kw)
-                for kw, _score in score_list[-k:]
+                for kw, _score in sorted_scores[ind_max_leap:]
             ]
-            prediction.append((trapdoor, best_candidates))
-        return prediction
+        else:
+            best_candidates = sorted_scores
+        if include_cluster_sep:
+            return (best_candidates, maximum_leap)
+        else:
+            return (best_candidates,)
 
-    def _sub_pred_clusters(
+    def _sub_pred(
         self,
         ind,
         td_list,
-        cluster_max_size=20,
+        k=0,
+        cluster_max_size=0,
         cluster_min_sensitivity=0,
         include_score=False,
         include_cluster_sep=False,
     ):
+        if bool(k) == bool(cluster_max_size):
+            raise ValueError("You have to choose either cluster mode or k-best mode")
+
         prediction = []
         for trapdoor in tqdm.tqdm(
             iterable=td_list,
             desc=f"Core {ind}: Evaluating each plain-cipher pairs",
-            position=ind,
+            position=ind+1,
         ):
             try:
                 trapdoor_ind = self.td_voc_info[trapdoor]["vector_ind"]
@@ -149,23 +146,21 @@ class KeywordTrapdoorMatchmaker:
                     score = np.inf
                 score_list.append((keyword, score))
             score_list.sort(key=lambda tup: tup[1])
-            score_list = score_list[cluster_max_size:]
-            diff_list = [
-                (i + 1, score_list[i + 1][1] - score[1])
-                for i, score in enumerate(score_list[:-1])
-            ]
-            ind_max_leap, maximum_leap = max(diff_list, key=lambda tup: tup[1])
-            if maximum_leap > cluster_min_sensitivity:
+
+            if cluster_max_size:
+                cluster = self.__scores_to_cluster(
+                    score_list,
+                    cluster_max_size=cluster_max_size,
+                    cluster_min_sensitivity=cluster_min_sensitivity,
+                    include_score=include_score,
+                    include_cluster_sep=include_cluster_sep,
+                )
+                prediction.append((trapdoor, *cluster))
+            else:
                 best_candidates = [
                     ((kw, _score) if include_score else kw)
-                    for kw, _score in score_list[ind_max_leap:]
+                    for kw, _score in score_list[-k:]
                 ]
-            else:
-                best_candidates = score_list
-
-            if include_cluster_sep:
-                prediction.append((trapdoor, best_candidates, maximum_leap))
-            else:
                 prediction.append((trapdoor, best_candidates))
         return prediction
 
@@ -183,11 +178,8 @@ class KeywordTrapdoorMatchmaker:
             prediction = dict(reduce(lambda x, y: x + y, results))
         return prediction
 
-    def predict_with_refinement(self, trapdoor_list, k=1, n_ref=5, ref_speed=0):
-        # TODO: factorize the several predict functions + integrate the clusters with refinement
-        # TODO: améliorer théoriquement le refinement (avec approche optimisation) et cluster (avec approche maths)
-        if k < 1:
-            k = len(self.kw_voc_info)
+    def predict_with_refinement(self, trapdoor_list, cluster_max_size=10, ref_speed=0):
+        # TODO: améliorer théoriquement le rafinement (avec approche optimisation) et cluster (avec approche maths)
         if ref_speed < 1:
             # Default refinement speed: 5% of the total number of trapdoors
             ref_speed = int(0.05 * len(self.td_voc_info))
@@ -195,52 +187,50 @@ class KeywordTrapdoorMatchmaker:
         NUM_CORES = multiprocessing.cpu_count()
         local_td_list = list(trapdoor_list)
 
-        first_diff = None
-        for i in range(n_ref):
-            with poolcontext(processes=NUM_CORES) as pool:
-
+        final_results = []
+        with poolcontext(processes=NUM_CORES) as pool, tqdm.tqdm(
+            total=len(trapdoor_list), position=0, desc="Refining predictions:"
+        ) as pbar:
+            while True:
+                prev_td_nb = len(local_td_list)
                 local_td_list = [
-                    td for td in local_td_list if td not in self._known_queries.keys()
+                    td
+                    for td in local_td_list
+                    if td not in self._known_queries.keys()
                 ]
-                pred_func = partial(self._sub_pred, k=max([k, 2]), include_score=True)
+                pbar.update(prev_td_nb - len(local_td_list))
+                pred_func = partial(
+                    self._sub_pred,
+                    cluster_max_size=cluster_max_size,
+                    include_cluster_sep=True,
+                )
                 results = pool.starmap(
                     pred_func,
-                    enumerate([local_td_list[i::NUM_CORES] for i in range(NUM_CORES)]),
+                    enumerate(
+                        [local_td_list[i::NUM_CORES] for i in range(NUM_CORES)]
+                    ),
                 )
                 results = reduce(lambda x, y: x + y, results)
-                results.sort(
-                    key=lambda tup_list_tup: tup_list_tup[1][-1][1]
-                    - tup_list_tup[1][-2][1]
-                )
-                if len(results) < ref_speed:
-                    break
-                else:
-                    current_diff = (
-                        results[-ref_speed][1][-1][1] - results[-ref_speed][1][-2][1]
-                    )
-                logger.error(current_diff)
-                # if first_diff is None:
-                #         first_diff = current_diff
-                # elif first_diff > current_diff:
-                #     break
-                if i != n_ref - 1:
-                    new_known = {
-                        td: list_candidates[-1][0]
-                        for td, list_candidates in results[-ref_speed:]
-                    }
 
-                    self._known_queries.update(new_known)
-                    self.__refresh_reduced_coocc()
+                single_point_results = [tup for tup in results if len(tup[1]) == 1]
+                single_point_results.sort(key=lambda tup: tup[2])
+                if len(single_point_results) < ref_speed:
+                    final_results = [(td, cluster) for td, cluster, _sep in results]
+                    break
+
+                new_known = {
+                    td: list_candidates[-1]
+                    for td, list_candidates, _sep in single_point_results[
+                        -ref_speed:
+                    ]
+                }
+                self._known_queries.update(new_known)
+                self.__refresh_reduced_coocc()
 
         prediction = {
             td: [kw] for td, kw in self._known_queries.items() if td in trapdoor_list
         }
-        prediction.update(
-            {
-                td: [kw for kw, _score in best_candidates[-k:]]
-                for td, best_candidates in results
-            }
-        )
+        prediction.update(dict(final_results))
         self._known_queries = old_known
         self.__refresh_reduced_coocc()
         return prediction
