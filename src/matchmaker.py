@@ -90,7 +90,8 @@ class KeywordTrapdoorMatchmaker:
         include_cluster_sep=False,
         include_score=False,
     ):
-        sorted_scores = sorted_scores[-cluster_max_size:]
+        # TODO: add a looooot of docstrings
+        sorted_scores = sorted_scores[-(cluster_max_size + 1) :]
         diff_list = [
             (i + 1, sorted_scores[i + 1][1] - score[1])
             for i, score in enumerate(sorted_scores[:-1])
@@ -102,7 +103,7 @@ class KeywordTrapdoorMatchmaker:
                 for kw, _score in sorted_scores[ind_max_leap:]
             ]
         else:
-            best_candidates = sorted_scores
+            best_candidates = sorted_scores[-cluster_max_size:]
         if include_cluster_sep:
             return (best_candidates, maximum_leap)
         else:
@@ -118,20 +119,22 @@ class KeywordTrapdoorMatchmaker:
         include_score=False,
         include_cluster_sep=False,
     ):
-        if bool(k) == bool(cluster_max_size):
+        if bool(k) == bool(cluster_max_size) or (k and include_cluster_sep):
             raise ValueError("You have to choose either cluster mode or k-best mode")
 
         prediction = []
         for trapdoor in tqdm.tqdm(
             iterable=td_list,
             desc=f"Core {ind}: Evaluating each plain-cipher pairs",
-            position=ind+1,
+            position=ind,
         ):
             try:
                 trapdoor_ind = self.td_voc_info[trapdoor]["vector_ind"]
             except KeyError:
                 logger.warning(f"Unknown trapdoor: {trapdoor}")
-                prediction.append((trapdoor, []))
+                prediction.append(
+                    ((trapdoor, [], 0) if include_cluster_sep else (trapdoor, []))
+                )
                 continue
             trapdoor_vec = self.td_reduced_coocc[trapdoor_ind]
 
@@ -189,14 +192,12 @@ class KeywordTrapdoorMatchmaker:
 
         final_results = []
         with poolcontext(processes=NUM_CORES) as pool, tqdm.tqdm(
-            total=len(trapdoor_list), position=0, desc="Refining predictions:"
+            total=len(trapdoor_list), position=NUM_CORES, desc="Refining predictions"
         ) as pbar:
             while True:
                 prev_td_nb = len(local_td_list)
                 local_td_list = [
-                    td
-                    for td in local_td_list
-                    if td not in self._known_queries.keys()
+                    td for td in local_td_list if td not in self._known_queries.keys()
                 ]
                 pbar.update(prev_td_nb - len(local_td_list))
                 pred_func = partial(
@@ -206,9 +207,7 @@ class KeywordTrapdoorMatchmaker:
                 )
                 results = pool.starmap(
                     pred_func,
-                    enumerate(
-                        [local_td_list[i::NUM_CORES] for i in range(NUM_CORES)]
-                    ),
+                    enumerate([local_td_list[i::NUM_CORES] for i in range(NUM_CORES)]),
                 )
                 results = reduce(lambda x, y: x + y, results)
 
@@ -220,9 +219,7 @@ class KeywordTrapdoorMatchmaker:
 
                 new_known = {
                     td: list_candidates[-1]
-                    for td, list_candidates, _sep in single_point_results[
-                        -ref_speed:
-                    ]
+                    for td, list_candidates, _sep in single_point_results[-ref_speed:]
                 }
                 self._known_queries.update(new_known)
                 self.__refresh_reduced_coocc()
