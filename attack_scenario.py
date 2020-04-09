@@ -15,6 +15,11 @@ logger = colorlog.getLogger("Keyword Regression Attack")
 
 
 def attack_enron(*args, **kwargs):
+    """Procedure to simulate an attack on ENRON document set.
+    
+    Returns:
+        [type] -- [description]
+    """
     setup_logger()
     # Params
     similar_voc_size = kwargs.get("similar_voc_size", 1000)
@@ -29,7 +34,6 @@ def attack_enron(*args, **kwargs):
         logger.debug(f"L0 Scheme => Queryset size: {queryset_size}")
 
     logger.info("ATTACK BEGINS")
-
     similar_docs, stored_docs = split_df(df=extract_sent_mail_contents(), frac=0.4)
 
     logger.info("Extracting keywords from similar documents.")
@@ -46,8 +50,8 @@ def attack_enron(*args, **kwargs):
         f"Picking {nb_known_queries} known queries ({nb_known_queries/queryset_size*100}% of the queries)"
     )
     known_queries = generate_known_queries(  # Extracted with uniform law
-        plain_wordlist=dict(similar_extractor.sorted_voc).keys(),
-        trapdoor_wordlist=dict(query_voc).keys(),
+        similar_wordlist=dict(similar_extractor.sorted_voc).keys(),
+        stored_wordlist=dict(query_voc).keys(),
         nb_queries=nb_known_queries,
     )
 
@@ -59,6 +63,8 @@ def attack_enron(*args, **kwargs):
     temp_known = {}
     eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
     for keyword, occ in query_voc:
+        # We replace each keyword of the trapdoor dictionary by its hash
+        # So the matchmaker truly ignores the keywords behind the trapdoors.
         fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
         temp_voc.append((fake_trapdoor, occ))
         if known_queries.get(keyword):
@@ -74,8 +80,19 @@ def attack_enron(*args, **kwargs):
         trapdoor_sorted_voc=query_voc,
         known_queries=known_queries,
     )
-    logger.info(f"Accuracy: {matchmaker.accuracy(k=1, eval_dico=eval_dico)[0]}")
+    base_acc = matchmaker.accuracy(k=1, eval_dico=eval_dico)[0]
+    res_ref = matchmaker.predict_with_refinement(
+        list(eval_dico.keys()), cluster_max_size=10, ref_speed=10
+    )
+    ref_acc = np.mean(
+        [eval_dico[td] in candidates for td, candidates in res_ref.items()]
+    )
+    logger.info(f"Base accuracy: {base_acc} / Refinement accuracy: {ref_acc}")
+    # NB: To be sure there is no bias in the algorithm we can compute the accuracy manually
+    # as it is done for the refinement accuracy here.
     return matchmaker, eval_dico
+    # The matchmaker and the eval_dico are returned so you
+    # can run your own test in a Python terminal
 
 
 def enron_result_generator(result_file="enron.csv"):
@@ -108,9 +125,9 @@ def enron_result_generator(result_file="enron.csv"):
             "Acc with refinement",
             "Acc with refinement+cluster",
             "Cluster size",
-            "Refinement speed"
+            "Refinement speed",
         ]
-        writer = csv.DictWriter(csvfile, delimiter=';', fieldnames=fieldnames)
+        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
         writer.writeheader()
         similar_docs, stored_docs = split_df(df=extract_sent_mail_contents(), frac=0.3)
         for (voc_size, queryset_size, nb_known_queries) in tqdm.tqdm(
@@ -127,8 +144,8 @@ def enron_result_generator(result_file="enron.csv"):
                 query_array, query_voc = real_extractor.get_fake_queries(queryset_size)
 
             known_queries = generate_known_queries(
-                plain_wordlist=dict(similar_extractor.sorted_voc).keys(),
-                trapdoor_wordlist=dict(query_voc).keys(),
+                similar_wordlist=dict(similar_extractor.sorted_voc).keys(),
+                stored_wordlist=dict(query_voc).keys(),
                 nb_queries=nb_known_queries,
             )
 
@@ -162,13 +179,17 @@ def enron_result_generator(result_file="enron.csv"):
                 [eval_dico[td] in candidates for td, candidates in results.items()]
             )
 
-            ref_speed = int(0.05*queryset_size)
-            results = mm.predict_with_refinement(td_list, cluster_max_size=1, ref_speed=ref_speed)
+            ref_speed = int(0.05 * queryset_size)
+            results = mm.predict_with_refinement(
+                td_list, cluster_max_size=1, ref_speed=ref_speed
+            )
             ref_acc = np.mean(
                 [eval_dico[td] in candidates for td, candidates in results.items()]
             )
 
-            results = mm.predict_with_refinement(td_list, cluster_max_size=10, ref_speed=ref_speed)
+            results = mm.predict_with_refinement(
+                td_list, cluster_max_size=10, ref_speed=ref_speed
+            )
             clust_ref_acc = np.mean(
                 [eval_dico[td] in candidates for td, candidates in results.items()]
             )
@@ -185,7 +206,7 @@ def enron_result_generator(result_file="enron.csv"):
                     "Acc with refinement": "%.3f" % ref_acc,
                     "Acc with refinement+cluster": "%.3f" % clust_ref_acc,
                     "Cluster size": 10,
-                    "Refinement speed": ref_speed
+                    "Refinement speed": ref_speed,
                 }
             )
             old_voc_size, old_queryset_size = (voc_size, queryset_size)

@@ -1,7 +1,7 @@
 Searchable encryption attack
 ===
 
-This code aims at attacking symmetric searchable encryption thanks to a count strategy.
+This code aims at simulating an attack SSE using the co-occurrence leakage.
 
 Download the repo and launch `setup.sh`.
 

@@ -49,12 +49,16 @@ def setup_logger():
 
 @contextmanager
 def poolcontext(*args, **kwargs):
+    """Context manager to standardize the parallelized functions.
+    """
     pool = multiprocessing.Pool(*args, **kwargs)
     yield pool
     pool.terminate()
 
 
 class OccRowComputer:
+    """Callable class used to parallelize occurence matrix computation
+    """
     def __init__(self, sorted_voc):
         self.voc = [word for word, occ in sorted_voc]
 
@@ -63,6 +67,8 @@ class OccRowComputer:
 
 
 class KeywordExtractor:
+    """Class to extract the keyword from a corpus/email set
+    """
     def __init__(self, corpus_df, voc_size=100, min_freq=1):
         glob_freq_dict = {}
         freq_dict = {}
@@ -95,7 +101,7 @@ class KeywordExtractor:
         logger.info(f"Vocabulary size: {len(self.sorted_voc)}")
         del glob_freq_list
 
-        # Creation of the co-occurence matrix
+        # Creation of the occurence matrix
         self.occ_array = self.build_occurence_array(
             sorted_voc=self.sorted_voc, freq_dict=freq_dict
         )
@@ -122,9 +128,9 @@ class KeywordExtractor:
             for word in word_tokenize(sentence)
             if word.lower() not in stopwords_list and word.isalnum()
         ]
-        if freq:
+        if freq: # (word, occurence) sorted list
             return nltk.FreqDist(stemmed_word_list)
-        else:
+        else:  # Word list
             return stemmed_word_list
 
     @staticmethod
@@ -164,6 +170,23 @@ class KeywordExtractor:
         return np.array(occ_list, dtype=np.float64)
 
 
-def generate_known_queries(plain_wordlist, trapdoor_wordlist, nb_queries):
-    candidates = set(plain_wordlist).intersection(trapdoor_wordlist)
+def generate_known_queries(similar_wordlist, stored_wordlist, nb_queries):
+    """Extract random keyword which are present in the similar document set
+    and in the server. So the pairs (similar_keyword, trapdoor_keyword) will
+    be considered as known queries. Since the trapdoor words are not hashed
+    the tuples will be like ("word","word"). We could only return the keywords
+    but this tuple represents well what an attacer would have, i.e. tuple linking
+    one keyword to a trapdoor they has seen.
+
+    NB: the length of the server wordlist is the number of possible queries
+    
+    Arguments:
+        similar_wordlist {List[str]} -- List of the keywords of the similar vocabulary
+        trapdoor_wordlist {List[str]} -- List of the keywords of the server vocabulary
+        nb_queries {int} -- Number of queries wanted
+    
+    Returns:
+        dict[str,str] -- dictionary containing known queries
+    """
+    candidates = set(similar_wordlist).intersection(stored_wordlist)
     return {word: word for word in random.sample(candidates, nb_queries)}

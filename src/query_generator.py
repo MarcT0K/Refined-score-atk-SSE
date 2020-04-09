@@ -12,6 +12,10 @@ logger = colorlog.getLogger("Keyword Regression Attack")
 
 
 class QueryResultExtractor(KeywordExtractor):
+    """Just a keyword extractor augmented with a query generator.
+    It corresponds to the index in the server. The fake queries are
+    seen by the attacker.
+    """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         x = np.arange(1, len(self.sorted_voc) + 1)
@@ -28,12 +32,15 @@ class QueryResultExtractor(KeywordExtractor):
             size {int} -- Size of the sample of random queries (default: {1})
         
         Returns:
-            queries_array, sorted_voc
+            queries_array, sorted_voc -- i-th column corresponds to the i-th word of the sorted voc
         """
         logger.info("Generating fake queries")
         sample_set = set(self._bounded_zipf.rvs(size=size) - 1)
         queries_remaining = size - len(sample_set)
         while queries_remaining > 0:
+            # The process is repeated until having the correct size.
+            # It is not elegant, but in IKK and Cash, they present
+            # queryset with unique queries.
             sample_set = sample_set.union(
                 self._bounded_zipf.rvs(size=queries_remaining) - 1
             )

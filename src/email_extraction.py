@@ -25,7 +25,7 @@ def get_body_from_email(mail):
     return "".join(parts)
 
 
-def extract_sent_mail_contents(maildir_directory="../maildir/") -> pd.DataFrame:
+def extract_sent_mail_contents(maildir_directory="./maildir/") -> pd.DataFrame:
     path = os.path.expanduser(maildir_directory)
     mails = glob.glob(f"{path}/*/_sent_mail/*")
 
