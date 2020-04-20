@@ -18,9 +18,9 @@ class KeywordTrapdoorMatchmaker:
         self,
         keyword_occ_array,
         trapdoor_occ_array,
-        keyword_sorted_voc: List[Tuple[str, int]],
+        keyword_sorted_voc: List[str],
         known_queries: Dict[str, str],
-        trapdoor_sorted_voc: Optional[List[Tuple[str, int]]],
+        trapdoor_sorted_voc: Optional[List[str]],
         norm_ord=2,  # L2 (Euclidean norm)
     ):
         """Initialization of the matchmaker
@@ -30,10 +30,10 @@ class KeywordTrapdoorMatchmaker:
             trapdoor_occ_array {np.array} -- Trapdoor occurrence (row: stored documents; columns: trapdoors)
                                             the documents are unknown (just the identifier has
                                             been seen by the attacker)
-            keyword_sorted_voc {List[Tuple[str, int]]} -- Keywoord vocabulary extracted from similar documents.
+            keyword_sorted_voc {List[str]} -- Keywoord vocabulary extracted from similar documents.
             known_queries {Dict[str, str]} -- Queries known by the attacker
-            trapdoor_sorted_voc {Optional[List[Tuple[str, int]]]} -- The trapdoor voc can be a sorted list of (hash, occ)
-                                                                    to hide the underlying keywords.
+            trapdoor_sorted_voc {Optional[List[str]]} -- The trapdoor voc can be a sorted list of hashes
+                                                            to hide the underlying keywords.
         
         Keyword Arguments:
             norm_ord {int} -- Order of the norm used by the matchmaker (default: {2})
@@ -48,20 +48,26 @@ class KeywordTrapdoorMatchmaker:
         self._known_queries = known_queries  # Keys: trapdoor, Values: keyword
 
         self.number_similar_docs = keyword_occ_array.shape[0]
-        self.number_real_docs = self.__estimate_nb_real_docs(
-            dict(keyword_sorted_voc), dict(trapdoor_sorted_voc)
-        )
 
         # NB: kw=KeyWord; td=TrapDoor
         self.kw_voc_info = {
-            word: {"vector_ind": ind, "word_occ": occ / self.number_similar_docs}
-            for ind, (word, occ) in enumerate(keyword_sorted_voc)
+            word: {"vector_ind": ind, "word_occ": sum(keyword_occ_array[:, ind])}
+            for ind, word in enumerate(keyword_sorted_voc)
         }
 
         self.td_voc_info = {
-            word: {"vector_ind": ind, "word_occ": occ / self.number_real_docs}
-            for ind, (word, occ) in enumerate(trapdoor_sorted_voc)
+            word: {"vector_ind": ind, "word_occ": sum(trapdoor_occ_array[:, ind])}
+            for ind, word in enumerate(trapdoor_sorted_voc)
         }
+        self.number_real_docs = self.__estimate_nb_real_docs()
+        for kw in self.kw_voc_info.keys():
+            self.kw_voc_info[kw]["word_freq"] = (
+                self.kw_voc_info[kw]["word_occ"] / self.number_similar_docs
+            )
+        for td in self.td_voc_info.keys():
+            self.td_voc_info[td]["word_freq"] = (
+                self.td_voc_info[td]["word_occ"] / self.number_real_docs
+            )
 
         logger.info("Computing cooccurrence matrices")
         self.kw_coocc = (
@@ -87,11 +93,14 @@ class KeywordTrapdoorMatchmaker:
         ]
         self.td_reduced_coocc = self.td_coocc[:, ind_known_td]
 
-    def __estimate_nb_real_docs(self, kw_voc, td_voc):
+    def __estimate_nb_real_docs(self):
         """Estimates the number of documents stored.
         """
         nb_doc_ratio_estimator = np.mean(
-            [td_voc[td] / kw_voc[kw] for td, kw in self._known_queries.items()]
+            [
+                self.td_voc_info[td]["word_occ"] / self.kw_voc_info[kw]["word_occ"]
+                for td, kw in self._known_queries.items()
+            ]
         )
 
         return self.number_similar_docs * nb_doc_ratio_estimator
@@ -186,7 +195,7 @@ class KeywordTrapdoorMatchmaker:
             trapdoor_vec = self.td_reduced_coocc[trapdoor_ind]
 
             score_list = []
-            for keyword, kw_info in self.kw_voc_info.items(): 
+            for keyword, kw_info in self.kw_voc_info.items():
                 # Computes the matching with each keyword of the vocabulary extracted from similar documents
                 keyword_vec = self.kw_reduced_coocc[kw_info["vector_ind"]]
                 vec_diff = keyword_vec - trapdoor_vec
@@ -286,7 +295,9 @@ class KeywordTrapdoorMatchmaker:
                 single_point_results = [tup for tup in results if len(tup[1]) == 1]
                 single_point_results.sort(key=lambda tup: tup[2])
 
-                if len(single_point_results) < ref_speed:  # Not enough single-point predictions 
+                if (
+                    len(single_point_results) < ref_speed
+                ):  # Not enough single-point predictions
                     final_results = [(td, cluster) for td, cluster, _sep in results]
                     break
 

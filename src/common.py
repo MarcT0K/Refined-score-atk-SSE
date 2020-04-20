@@ -59,8 +59,8 @@ def poolcontext(*args, **kwargs):
 class OccRowComputer:
     """Callable class used to parallelize occurence matrix computation
     """
-    def __init__(self, sorted_voc):
-        self.voc = [word for word, occ in sorted_voc]
+    def __init__(self, sorted_voc_with_occ):
+        self.voc = [word for word, occ in sorted_voc_with_occ]
 
     def __call__(self, word_list):
         return [int(voc_word in word_list) for voc_word in self.voc]
@@ -93,20 +93,28 @@ class KeywordExtractor:
             if voc_size
             else glob_freq_list.most_common()
         )
-        self.sorted_voc = sorted(
+        self.sorted_voc_with_occ = sorted(
             [(word, count) for word, count in glob_freq_list if count >= min_freq],
             key=lambda d: d[1],
             reverse=True,
         )
-        logger.info(f"Vocabulary size: {len(self.sorted_voc)}")
+        logger.info(f"Vocabulary size: {len(self.sorted_voc_with_occ)}")
         del glob_freq_list
 
         # Creation of the occurence matrix
         self.occ_array = self.build_occurence_array(
-            sorted_voc=self.sorted_voc, freq_dict=freq_dict
+            sorted_voc_with_occ=self.sorted_voc_with_occ, freq_dict=freq_dict
         )
         if not self.occ_array.any():
             raise ValueError("Occurence array is empty")
+
+    def get_sorted_voc(self):
+        """Returns the sorted vocabulary without the occurences.
+        
+        Returns:
+            List -- Word list
+        """
+        return dict(self.sorted_voc_with_occ).keys()
 
     @staticmethod
     def _merge_results(res1, res2):
@@ -157,11 +165,11 @@ class KeywordExtractor:
         return freq_dict, glob_freq_list
 
     @staticmethod
-    def build_occurence_array(sorted_voc: List, freq_dict: dict) -> pd.DataFrame:
+    def build_occurence_array(sorted_voc_with_occ: List, freq_dict: dict) -> pd.DataFrame:
         occ_list = []
         with poolcontext(processes=multiprocessing.cpu_count()) as pool:
             for row in tqdm.tqdm(
-                pool.imap_unordered(OccRowComputer(sorted_voc), freq_dict.values()),
+                pool.imap_unordered(OccRowComputer(sorted_voc_with_occ), freq_dict.values()),
                 desc="Computing the occurence array",
                 total=len(freq_dict.values()),
             ):

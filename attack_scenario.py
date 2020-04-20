@@ -8,17 +8,14 @@ import tqdm
 
 from src.common import KeywordExtractor, generate_known_queries, setup_logger
 from src.email_extraction import split_df, extract_sent_mail_contents
-from src.query_generator import QueryResultExtractor
+from src.query_generator import QueryResultExtractor, ObfuscatedResultExtractor
 from src.matchmaker import KeywordTrapdoorMatchmaker
 
 logger = colorlog.getLogger("Keyword Regression Attack")
 
 
 def attack_enron(*args, **kwargs):
-    """Procedure to simulate an attack on ENRON document set.
-    
-    Returns:
-        [type] -- [description]
+    """Procedure to simulate an inference attack on ENRON document set.
     """
     setup_logger()
     # Params
@@ -28,10 +25,10 @@ def attack_enron(*args, **kwargs):
     nb_known_queries = kwargs.get("nb_known_queries", int(queryset_size * 0.15))
     logger.debug(f"Server vocabulary size: {server_voc_size}")
     logger.debug(f"Similar vocabulary size: {similar_voc_size}")
-    if kwargs.get("L1"):
-        logger.debug("L1 Scheme")
+    if kwargs.get("L2"):
+        logger.debug("L2 Scheme")
     else:
-        logger.debug(f"L0 Scheme => Queryset size: {queryset_size}")
+        logger.debug(f"L1 Scheme => Queryset size: {queryset_size}")
 
     logger.info("ATTACK BEGINS")
     similar_docs, stored_docs = split_df(df=extract_sent_mail_contents(), frac=0.4)
@@ -40,7 +37,12 @@ def attack_enron(*args, **kwargs):
     similar_extractor = KeywordExtractor(similar_docs, similar_voc_size, 1)
 
     logger.info("Extracting keywords from stored documents.")
-    real_extractor = QueryResultExtractor(stored_docs, server_voc_size, 1)
+
+    if not kwargs.get("obfuscated"):
+        real_extractor = QueryResultExtractor(stored_docs, server_voc_size, 1)
+    else:
+        real_extractor = ObfuscatedResultExtractor(stored_docs, server_voc_size, 1)
+
     logger.info(f"Generating {queryset_size} queries from stored documents")
     query_array, query_voc = real_extractor.get_fake_queries(
         queryset_size
@@ -50,8 +52,8 @@ def attack_enron(*args, **kwargs):
         f"Picking {nb_known_queries} known queries ({nb_known_queries/queryset_size*100}% of the queries)"
     )
     known_queries = generate_known_queries(  # Extracted with uniform law
-        similar_wordlist=dict(similar_extractor.sorted_voc).keys(),
-        stored_wordlist=dict(query_voc).keys(),
+        similar_wordlist=similar_extractor.get_sorted_voc(),
+        stored_wordlist=query_voc,
         nb_queries=nb_known_queries,
     )
 
@@ -62,11 +64,11 @@ def attack_enron(*args, **kwargs):
     temp_voc = []
     temp_known = {}
     eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
-    for keyword, occ in query_voc:
+    for keyword in query_voc:
         # We replace each keyword of the trapdoor dictionary by its hash
         # So the matchmaker truly ignores the keywords behind the trapdoors.
         fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
-        temp_voc.append((fake_trapdoor, occ))
+        temp_voc.append(fake_trapdoor)
         if known_queries.get(keyword):
             temp_known[fake_trapdoor] = keyword
         eval_dico[fake_trapdoor] = keyword
@@ -75,7 +77,7 @@ def attack_enron(*args, **kwargs):
 
     matchmaker = KeywordTrapdoorMatchmaker(
         keyword_occ_array=similar_extractor.occ_array,
-        keyword_sorted_voc=similar_extractor.sorted_voc,
+        keyword_sorted_voc=similar_extractor.get_sorted_voc(),
         trapdoor_occ_array=query_array,
         trapdoor_sorted_voc=query_voc,
         known_queries=known_queries,
@@ -144,7 +146,7 @@ def enron_result_generator(result_file="enron.csv"):
                 query_array, query_voc = real_extractor.get_fake_queries(queryset_size)
 
             known_queries = generate_known_queries(
-                similar_wordlist=dict(similar_extractor.sorted_voc).keys(),
+                similar_wordlist=similar_extractor.get_sorted_voc(),
                 stored_wordlist=dict(query_voc).keys(),
                 nb_queries=nb_known_queries,
             )
@@ -162,7 +164,7 @@ def enron_result_generator(result_file="enron.csv"):
 
             mm = KeywordTrapdoorMatchmaker(
                 keyword_occ_array=similar_extractor.occ_array,
-                keyword_sorted_voc=similar_extractor.sorted_voc,
+                keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
                 trapdoor_sorted_voc=td_voc,
                 known_queries=known_queries,
@@ -236,10 +238,16 @@ if __name__ == "__main__":
         help="Number of queries known by the attacker. Known Query=(Trapdoor, Corresponding Keyword)",
     )
     parser.add_argument(
-        "--L1",
+        "--L2",
         default=False,
         action="store_true",
-        help="Whether the server has an L1 scheme or not",
+        help="Whether the server has an L2 scheme or not",
+    )
+    parser.add_argument(
+        "--obfuscated",
+        default=False,
+        action="store_true",
+        help="Whether d-privacy countermeasure is used or not.",
     )
     parser.add_argument(
         "--attack-dataset",
@@ -260,3 +268,8 @@ if __name__ == "__main__":
         raise NotImplementedError
     else:
         raise ValueError("Unknown dataset")
+
+
+# Apache
+# Generalization
+# Remove the zeros from the diagonal
