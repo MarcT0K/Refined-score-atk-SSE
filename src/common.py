@@ -57,7 +57,7 @@ def poolcontext(*args, **kwargs):
 
 
 class OccRowComputer:
-    """Callable class used to parallelize occurence matrix computation
+    """Callable class used to parallelize occurrence matrix computation
     """
     def __init__(self, sorted_voc_with_occ):
         self.voc = [word for word, occ in sorted_voc_with_occ]
@@ -101,15 +101,15 @@ class KeywordExtractor:
         logger.info(f"Vocabulary size: {len(self.sorted_voc_with_occ)}")
         del glob_freq_list
 
-        # Creation of the occurence matrix
-        self.occ_array = self.build_occurence_array(
+        # Creation of the occurrence matrix
+        self.occ_array = self.build_occurrence_array(
             sorted_voc_with_occ=self.sorted_voc_with_occ, freq_dict=freq_dict
         )
         if not self.occ_array.any():
-            raise ValueError("Occurence array is empty")
+            raise ValueError("occurrence array is empty")
 
     def get_sorted_voc(self):
-        """Returns the sorted vocabulary without the occurences.
+        """Returns the sorted vocabulary without the occurrences.
         
         Returns:
             List -- Word list
@@ -136,7 +136,7 @@ class KeywordExtractor:
             for word in word_tokenize(sentence)
             if word.lower() not in stopwords_list and word.isalnum()
         ]
-        if freq: # (word, occurence) sorted list
+        if freq: # (word, occurrence) sorted list
             return nltk.FreqDist(stemmed_word_list)
         else:  # Word list
             return stemmed_word_list
@@ -165,12 +165,12 @@ class KeywordExtractor:
         return freq_dict, glob_freq_list
 
     @staticmethod
-    def build_occurence_array(sorted_voc_with_occ: List, freq_dict: dict) -> pd.DataFrame:
+    def build_occurrence_array(sorted_voc_with_occ: List, freq_dict: dict) -> pd.DataFrame:
         occ_list = []
         with poolcontext(processes=multiprocessing.cpu_count()) as pool:
             for row in tqdm.tqdm(
                 pool.imap_unordered(OccRowComputer(sorted_voc_with_occ), freq_dict.values()),
-                desc="Computing the occurence array",
+                desc="Computing the occurrence array",
                 total=len(freq_dict.values()),
             ):
                 occ_list.append(row)

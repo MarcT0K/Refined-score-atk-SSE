@@ -41,6 +41,7 @@ def attack_enron(*args, **kwargs):
     if not kwargs.get("obfuscated"):
         real_extractor = QueryResultExtractor(stored_docs, server_voc_size, 1)
     else:
+        logger.debug("Obfuscation enabled")
         real_extractor = ObfuscatedResultExtractor(stored_docs, server_voc_size, 1)
 
     logger.info(f"Generating {queryset_size} queries from stored documents")
@@ -270,6 +271,4 @@ if __name__ == "__main__":
         raise ValueError("Unknown dataset")
 
 
-# Apache
-# Generalization
-# Remove the zeros from the diagonal
+# TODO:Apache

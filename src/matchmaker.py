@@ -2,6 +2,7 @@ import multiprocessing
 import random
 
 from functools import partial, reduce
+from itertools import permutations
 from typing import Dict, List, Tuple, Optional
 
 import colorlog
@@ -21,7 +22,8 @@ class KeywordTrapdoorMatchmaker:
         keyword_sorted_voc: List[str],
         known_queries: Dict[str, str],
         trapdoor_sorted_voc: Optional[List[str]],
-        norm_ord=2,  # L2 (Euclidean norm)
+        norm_ord=2,  # L2 (Euclidean norm),
+        **kwargs,
     ):
         """Initialization of the matchmaker
         
@@ -45,7 +47,7 @@ class KeywordTrapdoorMatchmaker:
         if len(known_queries.values()) != len(set(known_queries.values())):
             raise ValueError("Several trapdoors are linked to the same keyword.")
 
-        self._known_queries = known_queries  # Keys: trapdoor, Values: keyword
+        self._known_queries = known_queries.copy()  # Keys: trapdoor, Values: keyword
 
         self.number_similar_docs = keyword_occ_array.shape[0]
 
@@ -59,7 +61,7 @@ class KeywordTrapdoorMatchmaker:
             word: {"vector_ind": ind, "word_occ": sum(trapdoor_occ_array[:, ind])}
             for ind, word in enumerate(trapdoor_sorted_voc)
         }
-        self.number_real_docs = self.__estimate_nb_real_docs()
+        self.number_real_docs = self._estimate_nb_real_docs()
         for kw in self.kw_voc_info.keys():
             self.kw_voc_info[kw]["word_freq"] = (
                 self.kw_voc_info[kw]["word_occ"] / self.number_similar_docs
@@ -69,7 +71,13 @@ class KeywordTrapdoorMatchmaker:
                 self.td_voc_info[td]["word_occ"] / self.number_real_docs
             )
 
+        self._compute_coocc_matrices(keyword_occ_array, trapdoor_occ_array, **kwargs)
+
+        self._refresh_reduced_coocc()
+
+    def _compute_coocc_matrices(self, keyword_occ_array, trapdoor_occ_array):
         logger.info("Computing cooccurrence matrices")
+        # Can be improved using scipy's sparse matrices since coocc is symmetric
         self.kw_coocc = (
             np.dot(keyword_occ_array.T, keyword_occ_array) / self.number_similar_docs
         )
@@ -79,10 +87,9 @@ class KeywordTrapdoorMatchmaker:
             np.dot(trapdoor_occ_array.T, trapdoor_occ_array) / self.number_real_docs
         )
         np.fill_diagonal(self.td_coocc, 0)
-        self.__refresh_reduced_coocc()
 
-    def __refresh_reduced_coocc(self):
-        """Refresh the co-occurence matrix based on the known queries.
+    def _refresh_reduced_coocc(self):
+        """Refresh the co-occurrence matrix based on the known queries.
         """
         ind_known_kw = [
             self.kw_voc_info[kw]["vector_ind"] for kw in self._known_queries.values()
@@ -93,7 +100,7 @@ class KeywordTrapdoorMatchmaker:
         ]
         self.td_reduced_coocc = self.td_coocc[:, ind_known_td]
 
-    def __estimate_nb_real_docs(self):
+    def _estimate_nb_real_docs(self):
         """Estimates the number of documents stored.
         """
         nb_doc_ratio_estimator = np.mean(
@@ -307,7 +314,7 @@ class KeywordTrapdoorMatchmaker:
                     for td, list_candidates, _sep in single_point_results[-ref_speed:]
                 }
                 self._known_queries.update(new_known)
-                self.__refresh_reduced_coocc()
+                self._refresh_reduced_coocc()
 
         # Concatenate known queries and last results
         prediction = {
@@ -317,7 +324,7 @@ class KeywordTrapdoorMatchmaker:
 
         # Reset the known queries
         self._known_queries = old_known
-        self.__refresh_reduced_coocc()
+        self._refresh_reduced_coocc()
         return prediction
 
     def accuracy(self, k=1, eval_dico=None):
@@ -349,3 +356,71 @@ class KeywordTrapdoorMatchmaker:
         ]
         recovery_rate = sum(match_list) / len(local_eval_dico)
         return recovery_rate, res_dict
+
+
+class GeneralMatchmaker(KeywordTrapdoorMatchmaker):
+    """
+    This class is just a basic POC. There are significant improvements and refactoring possible.
+    """
+
+    def _compute_coocc_matrices(
+        self, keyword_occ_array, trapdoor_occ_array, coocc_ord=2
+    ):
+        logger.info("Computing cooccurrence matrices")
+        # N-dim sparse matrix not implemented in Scipy
+        # Could be also improved if np.dot was implemented for N-dim
+        self.kw_coocc = np.zeros([len(self.kw_voc_info)] * coocc_ord)
+        self.__recursive_coocc_computer(keyword_occ_array, "keyword")
+        self.kw_coocc = self.kw_coocc / self.number_similar_docs
+
+        self.td_coocc = np.zeros([len(self.td_voc_info)] * coocc_ord)
+        self.__recursive_coocc_computer(trapdoor_occ_array, "trapdoor")
+        self.td_coocc = self.td_coocc / self.number_real_docs
+
+    def _refresh_reduced_coocc(self):
+        ind_known_kw = [
+            self.kw_voc_info[kw]["vector_ind"] for kw in self._known_queries.values()
+        ]
+        ind_known_td = [
+            self.td_voc_info[td]["vector_ind"] for td in self._known_queries.keys()
+        ]
+        slice_kw = np.ix_(
+            np.arange(len(self.kw_coocc)), *[ind_known_kw] * (self.kw_coocc.ndim - 1)
+        )
+        slice_td = np.ix_(
+            np.arange(len(self.td_coocc)), *[ind_known_td] * (self.td_coocc.ndim - 1)
+        )
+        self.kw_reduced_coocc = self.kw_coocc[slice_kw]
+        self.td_reduced_coocc = self.td_coocc[slice_td]
+
+    def __recursive_coocc_computer(
+        self, index_mat, coocc_choice, possible_rows=None, previous_indices=None
+    ):
+        if coocc_choice not in ("keyword", "trapdoor"):
+            raise ValueError
+
+        coocc_mat = self.kw_coocc if coocc_choice == "keyword" else self.td_coocc
+        if possible_rows is None:
+            possible_rows = np.arange(index_mat.shape[0])
+        if previous_indices is None:
+            previous_indices = []
+        max_loop = previous_indices[-1] + 1 if previous_indices else len(coocc_mat)
+
+        if len(previous_indices) + 1 == coocc_mat.ndim:
+            for i in range(max_loop):
+                possible_permutations = permutations(previous_indices + [i])
+                coocc = sum(index_mat[possible_rows, i])
+                for perm in possible_permutations:
+                    coocc_mat.itemset(perm, coocc)
+        else:
+            for i in range(max_loop):
+                possible_row_offsets = np.argwhere(
+                    index_mat[possible_rows, i]
+                ).flatten()
+                new_possible_rows = possible_rows[possible_row_offsets]
+                self.__recursive_coocc_computer(
+                    index_mat,
+                    coocc_choice,
+                    possible_rows=new_possible_rows,
+                    previous_indices=previous_indices + [i],
+                )
