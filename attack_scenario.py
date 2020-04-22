@@ -7,15 +7,20 @@ import numpy as np
 import tqdm
 
 from src.common import KeywordExtractor, generate_known_queries, setup_logger
-from src.email_extraction import split_df, extract_sent_mail_contents
+from src.email_extraction import split_df, extract_sent_mail_contents,extract_apache_ml
 from src.query_generator import QueryResultExtractor, ObfuscatedResultExtractor
 from src.matchmaker import KeywordTrapdoorMatchmaker
 
 logger = colorlog.getLogger("Keyword Regression Attack")
 
 
-def attack_enron(*args, **kwargs):
-    """Procedure to simulate an inference attack on ENRON document set.
+DocumentSetExtraction = {
+    "enron": extract_sent_mail_contents,
+    "apache": extract_apache_ml
+}
+
+def attack_procedure(*args, **kwargs):
+    """Procedure to simulate an inference attack.
     """
     setup_logger()
     # Params
@@ -23,6 +28,7 @@ def attack_enron(*args, **kwargs):
     server_voc_size = kwargs.get("server_voc_size", 1000)
     queryset_size = kwargs.get("queryset_size", 500)
     nb_known_queries = kwargs.get("nb_known_queries", int(queryset_size * 0.15))
+    attack_dataset = kwargs.get("attack_dataset", "")
     logger.debug(f"Server vocabulary size: {server_voc_size}")
     logger.debug(f"Similar vocabulary size: {similar_voc_size}")
     if kwargs.get("L2"):
@@ -30,8 +36,13 @@ def attack_enron(*args, **kwargs):
     else:
         logger.debug(f"L1 Scheme => Queryset size: {queryset_size}")
 
+    try:
+        extraction_procedure = DocumentSetExtraction[attack_dataset]
+    except KeyError:
+        raise ValueError("Unknown dataset")
+
     logger.info("ATTACK BEGINS")
-    similar_docs, stored_docs = split_df(df=extract_sent_mail_contents(), frac=0.4)
+    similar_docs, stored_docs = split_df(df=extraction_procedure(), frac=0.4)
 
     logger.info("Extracting keywords from similar documents.")
     similar_extractor = KeywordExtractor(similar_docs, similar_voc_size, 1)
@@ -261,14 +272,8 @@ if __name__ == "__main__":
     assert (
         params.nb_known_queries > 0 and params.nb_known_queries <= params.queryset_size
     )
-    if (
-        params.attack_dataset == "enron"
-    ):  # We can use an enum or a dict if we have a lot of possible dataset
-        attack_enron(**vars(params))
-    elif params.attack_dataset == "apache":
-        raise NotImplementedError
-    else:
-        raise ValueError("Unknown dataset")
+
+    attack_procedure(**vars(params))
 
 
 # TODO:Apache
