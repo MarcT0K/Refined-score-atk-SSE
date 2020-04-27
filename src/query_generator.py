@@ -1,4 +1,5 @@
 """Functions simulating the result harvesting of an attacker"""
+import math
 import random
 
 from typing import List, Tuple
@@ -67,22 +68,53 @@ class QueryResultExtractor(KeywordExtractor):
 
 class ObfuscatedResultExtractor(QueryResultExtractor):
     def __init__(self, *args, m=6, p=0.88703, q=0.04416, **kwargs):
+        self.occ_array = np.array([])  # useless but pylint is happy now :)
         super().__init__(*args, **kwargs)
         self._p = p
         self._q = q
         self._m = m
 
-    def _generate_fake_queries(self, size=1) -> dict:
-        query_arr, query_voc = super()._generate_fake_queries(size=size)
-        nrow, ncol = query_arr.shape
-        query_arr = np.repeat(query_arr, self._m, axis=0)
+        nrow, ncol = self.occ_array.shape
+        self.occ_array = np.repeat(self.occ_array, self._m, axis=0)
 
         for i in range(nrow):
             for j in range(ncol):
-                if query_arr[i, j]:  # Document i contains keyword j
+                if self.occ_array[i, j]:  # Document i contains keyword j
                     if random.random() < self._p:
-                        query_arr[i, j] = 0
+                        self.occ_array[i, j] = 0
                 else:
                     if random.random() < self._q:
-                        query_arr[i, j] = 1
-        return query_arr, query_voc
+                        self.occ_array[i, j] = 1
+
+
+class PaddedResultExtractor(QueryResultExtractor):
+    def __init__(self, *args, n=100, **kwargs):
+        self.occ_array = np.array([])
+        super().__init__(*args, **kwargs)
+        self._n = n
+
+        _, ncol = self.occ_array.shape
+        self._number_real_entries = np.sum(self.occ_array)
+        for j in range(ncol):
+            nb_entries = sum(self.occ_array[:, j])
+            nb_fake_entries_to_add = int(
+                math.ceil(nb_entries / self._n) * self._n - nb_entries
+            )
+            possible_fake_entries = list(np.argwhere(self.occ_array[:, j] == 0).flatten())
+            if len(possible_fake_entries) < nb_fake_entries_to_add:
+                # We need more documents to generate enough fake entries
+                # So we generate fake document IDs
+                fake_documents = np.zeros(
+                    (nb_fake_entries_to_add - len(possible_fake_entries), ncol)
+                )
+                self.occ_array = np.concatenate((self.occ_array, fake_documents))
+                possible_fake_entries = list(
+                    np.argwhere(self.occ_array[:, j] == 0).flatten()
+                )
+            fake_entries = random.sample(possible_fake_entries, nb_fake_entries_to_add)
+            self.occ_array[fake_entries, j] = 1
+
+        self._number_observed_entries = np.sum(self.occ_array)
+        logger.debug(
+            f"Padding overhead: {self._number_observed_entries/self._number_real_entries}"
+        )

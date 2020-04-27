@@ -7,8 +7,12 @@ import numpy as np
 import tqdm
 
 from src.common import KeywordExtractor, generate_known_queries, setup_logger
-from src.email_extraction import split_df, extract_sent_mail_contents,extract_apache_ml
-from src.query_generator import QueryResultExtractor, ObfuscatedResultExtractor
+from src.email_extraction import split_df, extract_sent_mail_contents, extract_apache_ml
+from src.query_generator import (
+    QueryResultExtractor,
+    ObfuscatedResultExtractor,
+    PaddedResultExtractor,
+)
 from src.matchmaker import KeywordTrapdoorMatchmaker
 
 logger = colorlog.getLogger("Keyword Regression Attack")
@@ -16,8 +20,9 @@ logger = colorlog.getLogger("Keyword Regression Attack")
 
 DocumentSetExtraction = {
     "enron": extract_sent_mail_contents,
-    "apache": extract_apache_ml
+    "apache": extract_apache_ml,
 }
+
 
 def attack_procedure(*args, **kwargs):
     """Procedure to simulate an inference attack.
@@ -28,7 +33,8 @@ def attack_procedure(*args, **kwargs):
     server_voc_size = kwargs.get("server_voc_size", 1000)
     queryset_size = kwargs.get("queryset_size", 500)
     nb_known_queries = kwargs.get("nb_known_queries", int(queryset_size * 0.15))
-    attack_dataset = kwargs.get("attack_dataset", "")
+    attack_dataset = kwargs.get("attack_dataset", "enron")
+    countermeasure = kwargs.get("countermeasure")
     logger.debug(f"Server vocabulary size: {server_voc_size}")
     logger.debug(f"Similar vocabulary size: {similar_voc_size}")
     if kwargs.get("L2"):
@@ -49,11 +55,16 @@ def attack_procedure(*args, **kwargs):
 
     logger.info("Extracting keywords from stored documents.")
 
-    if not kwargs.get("obfuscated"):
+    if not countermeasure:
         real_extractor = QueryResultExtractor(stored_docs, server_voc_size, 1)
-    else:
+    elif countermeasure == "obfuscation":
         logger.debug("Obfuscation enabled")
         real_extractor = ObfuscatedResultExtractor(stored_docs, server_voc_size, 1)
+    elif countermeasure == "padding":
+        logger.debug("Padding enabled")
+        real_extractor = PaddedResultExtractor(stored_docs, server_voc_size, 1)
+    else:
+        raise ValueError("Unknown countermeasure")
 
     logger.info(f"Generating {queryset_size} queries from stored documents")
     query_array, query_voc = real_extractor.get_fake_queries(
@@ -241,7 +252,7 @@ if __name__ == "__main__":
         help="Size of the vocabulary stored in the server.",
     )
     parser.add_argument(
-        "--queryset-size", type=int, default=500, help="Fake queryset size"
+        "--queryset-size", type=int, default=500, help="Number of queries which have been observed."
     )
     parser.add_argument(
         "--nb-known-queries",
@@ -256,10 +267,10 @@ if __name__ == "__main__":
         help="Whether the server has an L2 scheme or not",
     )
     parser.add_argument(
-        "--obfuscated",
-        default=False,
-        action="store_true",
-        help="Whether d-privacy countermeasure is used or not.",
+        "--countermeasure",
+        type=str,
+        default="",
+        help="Which countermeasure will be applied.",
     )
     parser.add_argument(
         "--attack-dataset",
@@ -274,6 +285,3 @@ if __name__ == "__main__":
     )
 
     attack_procedure(**vars(params))
-
-
-# TODO:Apache

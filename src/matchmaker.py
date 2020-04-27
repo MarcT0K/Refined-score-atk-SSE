@@ -186,11 +186,7 @@ class KeywordTrapdoorMatchmaker:
             raise ValueError("You have to choose either cluster mode or k-best mode")
 
         prediction = []
-        for trapdoor in tqdm.tqdm(
-            iterable=td_list,
-            desc=f"Core {ind}: Evaluating each plain-cipher pairs",
-            position=ind,
-        ):
+        for trapdoor in td_list:
             try:
                 trapdoor_ind = self.td_voc_info[trapdoor]["vector_ind"]
             except KeyError:
@@ -248,6 +244,7 @@ class KeywordTrapdoorMatchmaker:
             k = len(self.kw_voc_info)
         prediction = {}
         NUM_CORES = multiprocessing.cpu_count()
+        logger.info("Evaluating every possible keyword-trapdoor pair")
         with poolcontext(processes=NUM_CORES) as pool:
             pred_func = partial(self._sub_pred, k=k)
             results = pool.starmap(
@@ -279,7 +276,7 @@ class KeywordTrapdoorMatchmaker:
 
         final_results = []
         with poolcontext(processes=NUM_CORES) as pool, tqdm.tqdm(
-            total=len(trapdoor_list), position=NUM_CORES, desc="Refining predictions"
+            total=len(trapdoor_list), desc="Refining predictions"
         ) as pbar:
             while True:
                 prev_td_nb = len(local_td_list)
