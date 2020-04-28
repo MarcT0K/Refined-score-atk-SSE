@@ -88,7 +88,7 @@ class ObfuscatedResultExtractor(QueryResultExtractor):
 
 
 class PaddedResultExtractor(QueryResultExtractor):
-    def __init__(self, *args, n=100, **kwargs):
+    def __init__(self, *args, n=500, **kwargs):
         self.occ_array = np.array([])
         super().__init__(*args, **kwargs)
         self._n = n
