@@ -20,44 +20,55 @@ class QueryResultExtractor(KeywordExtractor):
     seen by the attacker.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, distribution="uniform", **kwargs):
         super().__init__(*args, **kwargs)
-        x = np.arange(1, len(self.sorted_voc_with_occ) + 1)
-        a = 1.0
-        weights = x ** (-a)
-        weights /= weights.sum()
-        self._bounded_zipf = stats.rv_discrete(name="bounded_zipf", values=(x, weights))
+        n = len(self.sorted_voc_with_occ)
+        x = np.arange(1, n + 1)
+        if distribution == "uniform":
+            weights = np.ones(n) / n
+        elif distribution == "zipfian":
+            a = 1.0
+            weights = x ** (-a)
+            weights /= weights.sum()
+        else:
+            raise ValueError("Distribution not supported.")
+        self._rv = stats.rv_discrete(name="bounded_zipf", values=(x, weights))
 
-    def _generate_fake_queries(self, size=1) -> dict:
-        """Uses a zipfian law to generate unique queries then there are several duplicates.
-        We keep generating queries until having a queryset with the expected size.
+    def _generate_random_sample(self, size=1) -> dict:
+        """Generate a sample with unique element thanks to the random variable
+        define in the __init__.
         
         Keyword Arguments:
             size {int} -- Size of the sample of random queries (default: {1}) 
 
         Returns:
-            queries_array, sorted_voc -- i-th column corresponds to the i-th word of the sorted voc
+            sample_list -- 
         """
-        logger.info("Generating fake queries")
-        sample_set = set(self._bounded_zipf.rvs(size=size) - 1)
+        sample_set = set(self._rv.rvs(size=size) - 1)
         queries_remaining = size - len(sample_set)
         while queries_remaining > 0:
             # The process is repeated until having the correct size.
             # It is not elegant, but in IKK and Cash, they present
             # queryset with unique queries.
-            sample_set = sample_set.union(
-                self._bounded_zipf.rvs(size=queries_remaining) - 1
-            )
+            sample_set = sample_set.union(self._rv.rvs(size=queries_remaining) - 1)
             queries_remaining = size - len(sample_set)
         sample_list = list(sample_set)  # Cast needed to index np.array
+
+        return sample_list
+
+    def get_fake_queries(
+        self, size=1, hide_nb_files=True, include_most_frequent=False
+    ) -> dict:
+        logger.info("Generating fake queries")
+        sample_list = self._generate_random_sample(size=size)
+
+        if include_most_frequent:
+            sample_list[0] = 0
+
         # sample_list is sorted since a set of integers is sorted
         query_voc = [self.sorted_voc_with_occ[ind][0] for ind in sample_list]
-        query_columns = self.occ_array[:, sample_list]
+        query_arr = self.occ_array[:, sample_list]
         # i-th element of column is 0/1 depending if the i-th document includes the keyword
-        return query_columns, query_voc
-
-    def get_fake_queries(self, size=1, hide_nb_files=True) -> dict:
-        query_arr, query_voc = self._generate_fake_queries(size=size)
 
         if hide_nb_files:
             # We remove every line containing only zeros, so we hide the nb of documents stored
@@ -100,7 +111,9 @@ class PaddedResultExtractor(QueryResultExtractor):
             nb_fake_entries_to_add = int(
                 math.ceil(nb_entries / self._n) * self._n - nb_entries
             )
-            possible_fake_entries = list(np.argwhere(self.occ_array[:, j] == 0).flatten())
+            possible_fake_entries = list(
+                np.argwhere(self.occ_array[:, j] == 0).flatten()
+            )
             if len(possible_fake_entries) < nb_fake_entries_to_add:
                 # We need more documents to generate enough fake entries
                 # So we generate fake document IDs

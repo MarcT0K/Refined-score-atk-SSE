@@ -35,6 +35,7 @@ def attack_procedure(*args, **kwargs):
     nb_known_queries = kwargs.get("nb_known_queries", int(queryset_size * 0.15))
     attack_dataset = kwargs.get("attack_dataset", "enron")
     countermeasure = kwargs.get("countermeasure")
+    include_most_frequent = bool(kwargs.get("include_most_frequent"))
     logger.debug(f"Server vocabulary size: {server_voc_size}")
     logger.debug(f"Similar vocabulary size: {similar_voc_size}")
     if kwargs.get("L2"):
@@ -68,8 +69,8 @@ def attack_procedure(*args, **kwargs):
 
     logger.info(f"Generating {queryset_size} queries from stored documents")
     query_array, query_voc = real_extractor.get_fake_queries(
-        queryset_size
-    )  # Extracted with zipfian law
+        queryset_size, include_most_frequent=include_most_frequent
+    )
 
     del real_extractor  # Reduce memory usage especially when applying countermeasures
 
@@ -81,6 +82,8 @@ def attack_procedure(*args, **kwargs):
         stored_wordlist=query_voc,
         nb_queries=nb_known_queries,
     )
+    if include_most_frequent:
+        known_queries[query_voc[0]] = query_voc[0]
 
     logger.debug(
         "Hashing the keywords of the stored documents (transforming them into trapdoor tokens)"
@@ -254,7 +257,10 @@ if __name__ == "__main__":
         help="Size of the vocabulary stored in the server.",
     )
     parser.add_argument(
-        "--queryset-size", type=int, default=500, help="Number of queries which have been observed."
+        "--queryset-size",
+        type=int,
+        default=500,
+        help="Number of queries which have been observed.",
     )
     parser.add_argument(
         "--nb-known-queries",
@@ -332,13 +338,11 @@ def understand_countermeasures_results(*args, **kwargs):
         raise ValueError("Unknown countermeasure")
 
     logger.info(f"Generating {queryset_size} queries from stored documents")
-    query_array, query_voc_plain = real_extractor.get_fake_queries(
-        queryset_size
-    )  # Extracted with zipfian distribution
+    query_array, query_voc_plain = real_extractor.get_fake_queries(queryset_size)
     del real_extractor
 
     accuracies = []
-    for _i in range(kwargs.get("n_trials",5)):
+    for _i in range(kwargs.get("n_trials", 5)):
         logger.debug(
             f"Picking {nb_known_queries} known queries ({nb_known_queries/queryset_size*100}% of the queries)"
         )
@@ -384,4 +388,3 @@ def understand_countermeasures_results(*args, **kwargs):
         accuracies.append(ref_acc)
 
     return matchmaker, eval_dico, accuracies
-
