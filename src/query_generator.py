@@ -57,13 +57,10 @@ class QueryResultExtractor(KeywordExtractor):
         return sample_list
 
     def get_fake_queries(
-        self, size=1, hide_nb_files=True, include_most_frequent=False
+        self, size=1, hide_nb_files=True
     ) -> dict:
         logger.info("Generating fake queries")
         sample_list = self._generate_random_sample(size=size)
-
-        if include_most_frequent:
-            sample_list[0] = 0
 
         # sample_list is sorted since a set of integers is sorted
         query_voc = [self.sorted_voc_with_occ[ind][0] for ind in sample_list]

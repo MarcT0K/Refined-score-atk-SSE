@@ -146,7 +146,6 @@ def understand_variance(*args, **kwargs):
     queryset_size = kwargs.get("queryset_size", 500)
     nb_known_queries = kwargs.get("nb_known_queries", int(queryset_size * 0.15))
     attack_dataset = kwargs.get("attack_dataset", "enron")
-    include_most_frequent = bool(kwargs.get("include_most_frequent"))
     countermeasure = kwargs.get("countermeasure")
     logger.debug(f"Server vocabulary size: {server_voc_size}")
     logger.debug(f"Similar vocabulary size: {similar_voc_size}")
@@ -179,13 +178,11 @@ def understand_variance(*args, **kwargs):
     else:
         raise ValueError("Unknown countermeasure")
 
+    logger.info(f"Generating {queryset_size} queries from stored documents")
+    query_array, query_voc_plain = real_extractor.get_fake_queries(queryset_size)
+    del real_extractor
     accuracies = []
     for _i in range(kwargs.get("n_trials", 5)):
-        logger.info(f"Generating {queryset_size} queries from stored documents")
-        query_array, query_voc_plain = real_extractor.get_fake_queries(
-            queryset_size, include_most_frequent=include_most_frequent
-        )
-
         logger.debug(
             f"Picking {nb_known_queries} known queries ({nb_known_queries/queryset_size*100}% of the queries)"
         )
@@ -193,10 +190,8 @@ def understand_variance(*args, **kwargs):
         known_queries = generate_known_queries(  # Extracted with uniform law
             similar_wordlist=similar_extractor.get_sorted_voc(),
             stored_wordlist=query_voc_plain,
-            nb_queries=nb_known_queries - int(include_most_frequent),
+            nb_queries=nb_known_queries,
         )
-        if include_most_frequent:
-            known_queries[query_voc_plain[0]] = query_voc_plain[0]
 
         logger.debug(
             "Hashing the keywords of the stored documents (transforming them into trapdoor tokens)"
@@ -233,4 +228,53 @@ def understand_variance(*args, **kwargs):
         logger.info(f"Base accuracy: {base_acc} / Refinement accuracy: {ref_acc}")
         accuracies.append(ref_acc)
 
-    return matchmaker, eval_dico, accuracies
+    accuracies_frequent = []
+    for _i in range(kwargs.get("n_trials", 5)):
+        logger.debug(
+            f"Picking {nb_known_queries} known queries ({nb_known_queries/queryset_size*100}% of the queries)"
+        )
+
+        stored_wordlist = query_voc_plain[: len(query_voc_plain) // 4]
+
+        known_queries = generate_known_queries(  # Extracted with uniform law
+            similar_wordlist=similar_extractor.get_sorted_voc(),
+            stored_wordlist=stored_wordlist,
+            nb_queries=nb_known_queries,
+        )
+
+        logger.debug(
+            "Hashing the keywords of the stored documents (transforming them into trapdoor tokens)"
+        )
+        # Trapdoor token == convey no information about the corresponding keyword
+        temp_voc = []
+        temp_known = {}
+        eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
+        for keyword in query_voc_plain:
+            # We replace each keyword of the trapdoor dictionary by its hash
+            # So the matchmaker truly ignores the keywords behind the trapdoors.
+            fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
+            temp_voc.append(fake_trapdoor)
+            if known_queries.get(keyword):
+                temp_known[fake_trapdoor] = keyword
+            eval_dico[fake_trapdoor] = keyword
+        query_voc = temp_voc
+        known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
+
+        matchmaker = KeywordTrapdoorMatchmaker(
+            keyword_occ_array=similar_extractor.occ_array,
+            keyword_sorted_voc=similar_extractor.get_sorted_voc(),
+            trapdoor_occ_array=query_array,
+            trapdoor_sorted_voc=query_voc,
+            known_queries=known_queries,
+        )
+        base_acc = matchmaker.accuracy(k=1, eval_dico=eval_dico)[0]
+        res_ref = matchmaker.predict_with_refinement(
+            list(eval_dico.keys()), cluster_max_size=10, ref_speed=10
+        )
+        ref_acc = np.mean(
+            [eval_dico[td] in candidates for td, candidates in res_ref.items()]
+        )
+        logger.info(f"Base accuracy: {base_acc} / Refinement accuracy: {ref_acc}")
+        accuracies_frequent.append(ref_acc)
+
+    return accuracies, accuracies_frequent

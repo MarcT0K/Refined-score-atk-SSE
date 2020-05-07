@@ -35,7 +35,6 @@ def attack_procedure(*args, **kwargs):
     nb_known_queries = kwargs.get("nb_known_queries", int(queryset_size * 0.15))
     attack_dataset = kwargs.get("attack_dataset", "enron")
     countermeasure = kwargs.get("countermeasure")
-    include_most_frequent = bool(kwargs.get("include_most_frequent"))
     logger.debug(f"Server vocabulary size: {server_voc_size}")
     logger.debug(f"Similar vocabulary size: {similar_voc_size}")
     if kwargs.get("L2"):
@@ -66,12 +65,9 @@ def attack_procedure(*args, **kwargs):
     else:
         raise ValueError("Unknown countermeasure")
 
-
     ### QUERY GENERATION
     logger.info(f"Generating {queryset_size} queries from stored documents")
-    query_array, query_voc = real_extractor.get_fake_queries(
-        queryset_size, include_most_frequent=include_most_frequent
-    )
+    query_array, query_voc = real_extractor.get_fake_queries(queryset_size)
 
     del real_extractor  # Reduce memory usage especially when applying countermeasures
 
@@ -81,10 +77,8 @@ def attack_procedure(*args, **kwargs):
     known_queries = generate_known_queries(  # Extracted with uniform law
         similar_wordlist=similar_extractor.get_sorted_voc(),
         stored_wordlist=query_voc,
-        nb_queries=nb_known_queries-int(include_most_frequent),
+        nb_queries=nb_known_queries,
     )
-    if include_most_frequent:
-        known_queries[query_voc[0]] = query_voc[0]
 
     logger.debug(
         "Hashing the keywords of the stored documents (transforming them into trapdoor tokens)"
