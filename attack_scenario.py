@@ -31,7 +31,7 @@ def attack_procedure(*args, **kwargs):
     # Params
     similar_voc_size = kwargs.get("similar_voc_size", 1000)
     server_voc_size = kwargs.get("server_voc_size", 1000)
-    queryset_size = kwargs.get("queryset_size", 500)
+    queryset_size = kwargs.get("queryset_size", int(0.15*server_voc_size))
     nb_known_queries = kwargs.get("nb_known_queries", int(queryset_size * 0.15))
     attack_dataset = kwargs.get("attack_dataset", "enron")
     countermeasure = kwargs.get("countermeasure")

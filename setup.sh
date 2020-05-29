@@ -5,7 +5,6 @@ rm enron.tar.gz
 
 mkdir apache_ml
 cd apache_ml
-wget http://mail-archives.apache.org/mod_mbox/lucene-java-user/201012.mbox
 for y in {2002..2011}; do
     for m in {01..12}; do
         wget "http://mail-archives.apache.org/mod_mbox/lucene-java-user/${y}${m}.mbox"

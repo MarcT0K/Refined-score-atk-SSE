@@ -34,6 +34,9 @@ class QueryResultExtractor(KeywordExtractor):
             raise ValueError("Distribution not supported.")
         self._rv = stats.rv_discrete(name="bounded_zipf", values=(x, weights))
 
+    def __str__(self):
+        return "Basic"
+
     def _generate_random_sample(self, size=1) -> dict:
         """Generate a sample with unique element thanks to the random variable
         define in the __init__.
@@ -94,6 +97,9 @@ class ObfuscatedResultExtractor(QueryResultExtractor):
                     if random.random() < self._q:
                         self.occ_array[i, j] = 1
 
+    def __str__(self):
+        return "Obfuscated"
+
 
 class PaddedResultExtractor(QueryResultExtractor):
     def __init__(self, *args, n=500, **kwargs):
@@ -128,3 +134,6 @@ class PaddedResultExtractor(QueryResultExtractor):
         logger.debug(
             f"Padding overhead: {self._number_observed_entries/self._number_real_entries}"
         )
+
+    def __str__(self):
+        return "Padded"
