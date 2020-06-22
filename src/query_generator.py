@@ -1,17 +1,16 @@
-"""Functions simulating the result harvesting of an attacker"""
+"""Functions simulating the query and result harvesting of an attacker"""
 import math
 import random
 
-from typing import List, Tuple
+from typing import List
 
 import colorlog
 import numpy as np
 import scipy.stats as stats
-import tqdm
 
 from .common import KeywordExtractor
 
-logger = colorlog.getLogger("Keyword Regression Attack")
+logger = colorlog.getLogger("QueRyvolution")
 
 
 class QueryResultExtractor(KeywordExtractor):
@@ -40,12 +39,12 @@ class QueryResultExtractor(KeywordExtractor):
     def _generate_random_sample(self, size=1) -> dict:
         """Generate a sample with unique element thanks to the random variable
         define in the __init__.
-        
+
         Keyword Arguments:
-            size {int} -- Size of the sample of random queries (default: {1}) 
+            size {int} -- Size of the sample of random queries (default: {1})
 
         Returns:
-            sample_list -- 
+            sample_list -- List of indices picked at random
         """
         sample_set = set(self._rv.rvs(size=size) - 1)
         queries_remaining = size - len(sample_set)

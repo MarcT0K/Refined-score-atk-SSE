@@ -1,8 +1,6 @@
 import logging
 import multiprocessing
-import os
 import random
-import subprocess
 
 from functools import reduce
 from contextlib import contextmanager
@@ -22,7 +20,7 @@ from nltk.tokenize import sent_tokenize, word_tokenize
 nltk.download("stopwords")
 nltk.download("punkt")
 
-logger = colorlog.getLogger("Keyword Regression Attack")
+logger = colorlog.getLogger("QueRyvolution")
 
 
 def setup_logger():
@@ -110,7 +108,7 @@ class KeywordExtractor:
 
     def get_sorted_voc(self):
         """Returns the sorted vocabulary without the occurrences.
-        
+
         Returns:
             List -- Word list
         """
@@ -142,13 +140,13 @@ class KeywordExtractor:
             return stemmed_word_list
 
     @staticmethod
-    def extract_email_voc(ind, df, one_occ_per_doc=True):
+    def extract_email_voc(ind, dframe, one_occ_per_doc=True):
         freq_dict = {}
         glob_freq_list = {}
         for row_tuple in tqdm.tqdm(
-            iterable=df.itertuples(),
+            iterable=dframe.itertuples(),
             desc=f"Extracting corpus vocabulary (Core {ind})",
-            total=len(df),
+            total=len(dframe),
             position=ind,
         ):
             temp_freq_dist = KeywordExtractor.get_voc_from_one_email(
@@ -187,12 +185,12 @@ def generate_known_queries(similar_wordlist, stored_wordlist, nb_queries):
     one keyword to a trapdoor they has seen.
 
     NB: the length of the server wordlist is the number of possible queries
-    
+
     Arguments:
         similar_wordlist {List[str]} -- List of the keywords of the similar vocabulary
         trapdoor_wordlist {List[str]} -- List of the keywords of the server vocabulary
         nb_queries {int} -- Number of queries wanted
-    
+
     Returns:
         dict[str,str] -- dictionary containing known queries
     """

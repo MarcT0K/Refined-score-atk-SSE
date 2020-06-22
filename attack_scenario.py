@@ -1,10 +1,7 @@
 import argparse
-import csv
-import colorlog
-import contextlib
 import hashlib
-import numpy as np
-import tqdm
+
+import colorlog
 
 from src.common import KeywordExtractor, generate_known_queries, setup_logger
 from src.email_extraction import split_df, extract_sent_mail_contents, extract_apache_ml
@@ -15,7 +12,7 @@ from src.query_generator import (
 )
 from src.matchmaker import KeywordTrapdoorMatchmaker
 
-logger = colorlog.getLogger("Keyword Regression Attack")
+logger = colorlog.getLogger("QueRyvolution")
 
 
 DocumentSetExtraction = {
@@ -31,7 +28,7 @@ def attack_procedure(*args, **kwargs):
     # Params
     similar_voc_size = kwargs.get("similar_voc_size", 1000)
     server_voc_size = kwargs.get("server_voc_size", 1000)
-    queryset_size = kwargs.get("queryset_size", int(0.15*server_voc_size))
+    queryset_size = kwargs.get("queryset_size", int(0.15 * server_voc_size))
     nb_known_queries = kwargs.get("nb_known_queries", int(queryset_size * 0.15))
     attack_dataset = kwargs.get("attack_dataset", "enron")
     countermeasure = kwargs.get("countermeasure")
@@ -40,7 +37,9 @@ def attack_procedure(*args, **kwargs):
     if kwargs.get("L2"):
         logger.debug("L2 Scheme")
     else:
-        logger.debug(f"L1 Scheme => Queryset size: {queryset_size}")
+        logger.debug(
+            f"L1 Scheme => Queryset size: {queryset_size}, Known queries: {nb_known_queries}"
+        )
 
     try:
         extraction_procedure = DocumentSetExtraction[attack_dataset]
@@ -48,7 +47,7 @@ def attack_procedure(*args, **kwargs):
         raise ValueError("Unknown dataset")
 
     logger.info("ATTACK BEGINS")
-    similar_docs, stored_docs = split_df(df=extraction_procedure(), frac=0.4)
+    similar_docs, stored_docs = split_df(dframe=extraction_procedure(), frac=0.4)
 
     ### KEYWORD EXTRACTION
     logger.info("Extracting keywords from similar documents.")
@@ -106,13 +105,9 @@ def attack_procedure(*args, **kwargs):
         trapdoor_sorted_voc=query_voc,
         known_queries=known_queries,
     )
-    base_acc = matchmaker.accuracy(k=1, eval_dico=eval_dico)[0]
-    res_ref = matchmaker.predict_with_refinement(
-        list(eval_dico.keys()), cluster_max_size=10, ref_speed=10
-    )
-    ref_acc = np.mean(
-        [eval_dico[td] in candidates for td, candidates in res_ref.items()]
-    )
+
+    base_acc = matchmaker.base_accuracy(k=1, eval_dico=eval_dico)[0]
+    ref_acc = matchmaker.queryvolution_accuracy(eval_dico=eval_dico)[0]
     logger.info(f"Base accuracy: {base_acc} / Refinement accuracy: {ref_acc}")
     # NB: To be sure there is no bias in the algorithm we can compute the accuracy manually
     # as it is done for the refinement accuracy here.
@@ -138,13 +133,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--queryset-size",
         type=int,
-        default=500,
+        default=150,
         help="Number of queries which have been observed.",
     )
     parser.add_argument(
         "--nb-known-queries",
         type=int,
-        default=50,
+        default=10,
         help="Number of queries known by the attacker. Known Query=(Trapdoor, Corresponding Keyword)",
     )
     parser.add_argument(

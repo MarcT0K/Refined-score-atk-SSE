@@ -1,3 +1,5 @@
+"""Functions used to produce the results presented in the paper.
+"""
 import argparse
 import csv
 import colorlog
@@ -16,7 +18,7 @@ from src.query_generator import (
 from src.matchmaker import KeywordTrapdoorMatchmaker, GeneralMatchmaker
 from attack_scenario import DocumentSetExtraction
 
-logger = colorlog.getLogger("Keyword Regression Attack")
+logger = colorlog.getLogger("QueRyvolution")
 
 
 def understand_variance(*args, **kwargs):
@@ -26,8 +28,8 @@ def understand_variance(*args, **kwargs):
     # Params
     similar_voc_size = kwargs.get("similar_voc_size", 1000)
     server_voc_size = kwargs.get("server_voc_size", 1000)
-    queryset_size = kwargs.get("queryset_size", 500)
-    nb_known_queries = kwargs.get("nb_known_queries", int(queryset_size * 0.15))
+    queryset_size = kwargs.get("queryset_size", 150)
+    nb_known_queries = kwargs.get("nb_known_queries", 5)
     attack_dataset = kwargs.get("attack_dataset", "enron")
     countermeasure = kwargs.get("countermeasure")
     logger.debug(f"Server vocabulary size: {server_voc_size}")
@@ -35,7 +37,9 @@ def understand_variance(*args, **kwargs):
     if kwargs.get("L2"):
         logger.debug("L2 Scheme")
     else:
-        logger.debug(f"L1 Scheme => Queryset size: {queryset_size}")
+        logger.debug(
+            f"L1 Scheme => Queryset size: {queryset_size}, Known queries: {nb_known_queries}"
+        )
 
     try:
         extraction_procedure = DocumentSetExtraction[attack_dataset]
@@ -43,7 +47,7 @@ def understand_variance(*args, **kwargs):
         raise ValueError("Unknown dataset")
 
     logger.info("ATTACK BEGINS")
-    similar_docs, stored_docs = split_df(df=extraction_procedure(), frac=0.4)
+    similar_docs, stored_docs = split_df(dframe=extraction_procedure(), frac=0.4)
 
     logger.info("Extracting keywords from similar documents.")
     similar_extractor = KeywordExtractor(similar_docs, similar_voc_size, 1)
@@ -65,7 +69,7 @@ def understand_variance(*args, **kwargs):
     query_array, query_voc_plain = real_extractor.get_fake_queries(queryset_size)
     del real_extractor
     accuracies = []
-    for _i in range(kwargs.get("n_trials", 5)):
+    for _i in range(kwargs.get("n_trials", 40)):
         logger.debug(
             f"Picking {nb_known_queries} known queries ({nb_known_queries/queryset_size*100}% of the queries)"
         )
@@ -101,9 +105,16 @@ def understand_variance(*args, **kwargs):
             trapdoor_sorted_voc=query_voc,
             known_queries=known_queries,
         )
-        base_acc = matchmaker.accuracy(k=1, eval_dico=eval_dico)[0]
+        td_list = list(
+            set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+        )
+
+        results = matchmaker.predict(td_list, k=1)
+        base_acc = np.mean(
+            [eval_dico[td] in candidates for td, candidates in results.items()]
+        )
         res_ref = matchmaker.predict_with_refinement(
-            list(eval_dico.keys()), cluster_max_size=10, ref_speed=10
+            td_list, cluster_max_size=10, ref_speed=10
         )
         ref_acc = np.mean(
             [eval_dico[td] in candidates for td, candidates in res_ref.items()]
@@ -112,7 +123,7 @@ def understand_variance(*args, **kwargs):
         accuracies.append(ref_acc)
 
     accuracies_frequent = []
-    for _i in range(kwargs.get("n_trials", 5)):
+    for _i in range(kwargs.get("n_trials", 40)):
         logger.debug(
             f"Picking {nb_known_queries} known queries ({nb_known_queries/queryset_size*100}% of the queries)"
         )
@@ -150,9 +161,16 @@ def understand_variance(*args, **kwargs):
             trapdoor_sorted_voc=query_voc,
             known_queries=known_queries,
         )
-        base_acc = matchmaker.accuracy(k=1, eval_dico=eval_dico)[0]
+        td_list = list(
+            set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+        )
+
+        results = matchmaker.predict(td_list, k=1)
+        base_acc = np.mean(
+            [eval_dico[td] in candidates for td, candidates in results.items()]
+        )
         res_ref = matchmaker.predict_with_refinement(
-            list(eval_dico.keys()), cluster_max_size=10, ref_speed=10
+            td_list, cluster_max_size=10, ref_speed=10
         )
         ref_acc = np.mean(
             [eval_dico[td] in candidates for td, candidates in res_ref.items()]
@@ -173,7 +191,9 @@ def mean_cluster_size(*args, **kwargs):
 
     cluster_sizes = []
     for _i in range(kwargs.get("n_trials", 10)):
-        similar_docs, stored_docs = split_df(df=extract_sent_mail_contents, frac=0.4)
+        similar_docs, stored_docs = split_df(
+            dframe=extract_sent_mail_contents, frac=0.4
+        )
 
         logger.info("Extracting keywords from similar documents.")
         similar_extractor = KeywordExtractor(similar_docs, similar_voc_size, 1)
@@ -220,14 +240,13 @@ def mean_cluster_size(*args, **kwargs):
             trapdoor_sorted_voc=query_voc,
             known_queries=known_queries,
         )
-        base_acc = matchmaker.accuracy(k=1, eval_dico=eval_dico)[0]
+
         res_ref = matchmaker.predict_with_refinement(
             list(eval_dico.keys()), cluster_max_size=10, ref_speed=10
         )
         ref_acc = np.mean(
             [eval_dico[td] in candidates for td, candidates in res_ref.items()]
         )
-        logger.info(f"Base accuracy: {base_acc} / Refinement accuracy: {ref_acc}")
         clust_temp_sizes = [len(candidates) for candidates in res_ref.values()]
         cluster_sizes.extend(clust_temp_sizes)
     return cluster_sizes
@@ -259,7 +278,7 @@ def base_results(result_file="base.csv"):
             iterable=comb_voc_sizes,
             desc="Running tests with different combinations of parameters",
         ):
-            similar_docs, stored_docs = split_df(df=enron, frac=0.4)
+            similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
             queryset_size = int(voc_size * 0.15)
 
             similar_extractor = KeywordExtractor(similar_docs, voc_size, 1)
@@ -312,7 +331,7 @@ def base_results(result_file="base.csv"):
 
 def comp_results(result_file="comp.csv"):
     setup_logger()
-    comb_voc_sizes = [j for j in [10, 20, 40] for _k in range(10)]  # known queries
+    comb_voc_sizes = [j for j in [5, 10, 20, 40] for _k in range(10)]  # known queries
 
     similar_voc_size = 1200
     real_voc_size = 1000
@@ -335,7 +354,7 @@ def comp_results(result_file="comp.csv"):
             iterable=comb_voc_sizes,
             desc="Running tests with different combinations of parameters",
         ):
-            similar_docs, stored_docs = split_df(df=enron, frac=0.4)
+            similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
             queryset_size = int(real_voc_size * 0.15)
 
             similar_extractor = KeywordExtractor(similar_docs, similar_voc_size, 1)
@@ -440,7 +459,7 @@ def ref_results(result_file="ref.csv"):
                 iterable=queryset_sizes,
                 desc="Running tests with different combinations of parameters",
             ):
-                similar_docs, stored_docs = split_df(df=emails, frac=0.4)
+                similar_docs, stored_docs = split_df(dframe=emails, frac=0.4)
 
                 similar_extractor = KeywordExtractor(similar_docs, similar_voc_size, 1)
                 real_extractor = QueryResultExtractor(stored_docs, real_voc_size, 1)
@@ -519,7 +538,7 @@ def ref_voc_size_results(result_file="ref_voc_size.csv"):
             iterable=comb_voc_sizes,
             desc="Running tests with different combinations of parameters",
         ):
-            similar_docs, stored_docs = split_df(df=enron, frac=0.4)
+            similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
             queryset_size = int(voc_size * 0.15)
 
             similar_extractor = KeywordExtractor(similar_docs, voc_size, 1)
@@ -605,7 +624,7 @@ def countermeasure_results(result_file="countermeasures.csv"):
             iterable=comb_voc_sizes,
             desc="Running tests with different combinations of parameters",
         ):
-            similar_docs, stored_docs = split_df(df=enron, frac=0.4)
+            similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
             queryset_size = int(voc_size * 0.15)
 
             similar_extractor = KeywordExtractor(similar_docs, voc_size, 1)
@@ -679,7 +698,7 @@ def generalization(result_file="generalization.csv"):
         nb_known_queries = 10
 
         for _i in range(10):
-            similar_docs, stored_docs = split_df(df=enron, frac=0.4)
+            similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
 
             similar_extractor = KeywordExtractor(similar_docs, voc_size, 1)
             real_extractor = QueryResultExtractor(stored_docs, voc_size, 1)
@@ -732,7 +751,7 @@ def generalization(result_file="generalization.csv"):
             )
 
         for _i in range(10):
-            similar_docs, stored_docs = split_df(df=enron, frac=0.4)
+            similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
 
             similar_extractor = KeywordExtractor(similar_docs, voc_size, 1)
             real_extractor = QueryResultExtractor(stored_docs, voc_size, 1)

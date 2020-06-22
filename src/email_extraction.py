@@ -1,4 +1,4 @@
-"""Everything needed to extract Enron dataset emails.
+"""Everything needed to extract Enron and Apache email datasets.
 """
 
 import email
@@ -10,13 +10,13 @@ import pandas as pd
 import tqdm
 
 
-def split_df(df, frac=0.5):
-    first_split = df.sample(frac=frac)
-    second_split = df.drop(first_split.index)
+def split_df(dframe, frac=0.5):
+    first_split = dframe.sample(frac=frac)
+    second_split = dframe.drop(first_split.index)
     return first_split, second_split
 
 
-def get_body_from_email(mail):
+def get_body_from_enron_email(mail):
     """To get the content from raw email"""
     msg = email.message_from_string(mail)
     parts = []
@@ -44,12 +44,12 @@ def extract_sent_mail_contents(maildir_directory="./maildir/") -> pd.DataFrame:
     for mailfile_path in tqdm.tqdm(iterable=mails, desc="Reading the emails"):
         with open(mailfile_path, "r") as mailfile:
             raw_mail = mailfile.read()
-            mail_contents.append(get_body_from_email(raw_mail))
+            mail_contents.append(get_body_from_enron_email(raw_mail))
 
     return pd.DataFrame(data={"filename": mails, "mail_body": mail_contents})
 
 
-def extract_apache_ml(maildir_directory="../apache_ml/") -> pd.DataFrame:
+def extract_apache_ml(maildir_directory="./apache_ml/") -> pd.DataFrame:
     path = os.path.expanduser(maildir_directory)
     mails = glob.glob(f"{path}/*")
     mail_contents = []

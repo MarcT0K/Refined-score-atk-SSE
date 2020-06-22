@@ -1,9 +1,8 @@
 import multiprocessing
-import random
 
 from functools import partial, reduce
 from itertools import permutations
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 
 import colorlog
 import numpy as np
@@ -11,7 +10,7 @@ import tqdm
 
 from .common import poolcontext
 
-logger = colorlog.getLogger("Keyword Regression Attack")
+logger = colorlog.getLogger("QueRyvolution")
 
 
 class KeywordTrapdoorMatchmaker:
@@ -26,7 +25,7 @@ class KeywordTrapdoorMatchmaker:
         **kwargs,
     ):
         """Initialization of the matchmaker
-        
+
         Arguments:
             keyword_occ_array {np.array} -- Keyword occurrence (row: similar documents; columns: keywords)
             trapdoor_occ_array {np.array} -- Trapdoor occurrence (row: stored documents; columns: trapdoors)
@@ -36,7 +35,7 @@ class KeywordTrapdoorMatchmaker:
             known_queries {Dict[str, str]} -- Queries known by the attacker
             trapdoor_sorted_voc {Optional[List[str]]} -- The trapdoor voc can be a sorted list of hashes
                                                             to hide the underlying keywords.
-        
+
         Keyword Arguments:
             norm_ord {int} -- Order of the norm used by the matchmaker (default: {2})
         """
@@ -114,26 +113,26 @@ class KeywordTrapdoorMatchmaker:
 
     def set_norm_ord(self, norm_ord):
         """Set the order of the norm used to compute the scores.
-        
+
         Arguments:
             norm_ord {int} -- norm order
         """
         self._norm = partial(np.linalg.norm, ord=norm_ord)
 
-    def __scores_to_cluster(
-        self,
+    @staticmethod
+    def best_candidate_clustering(
         sorted_scores,
         cluster_max_size=10,
         cluster_min_sensitivity=0.0,
         include_cluster_sep=False,
         include_score=False,
     ):
-        """From a list of scores, extracts the highest-score cluster using
+        """From a list of scores, extracts the best-candidate cluster Smax using
         simple-linkage clustering.
-        
+
         Arguments:
             sorted_scores {List[float]} -- Sorted list of the scores
-        
+
         Keyword Arguments:
             cluster_max_size {int} -- maximum size of the prediction clusters (default: {10})
             cluster_min_sensitivity {float} -- minimum leap size. Otherwise returns the
@@ -142,7 +141,7 @@ class KeywordTrapdoorMatchmaker:
                                         from the rest of the points (default: {False})
             include_score {bool} -- if True, returns also the score for each keyword
                                     in the clusters (default: {False})
-        
+
         Returns:
             Tuple[List[keyword],Optional[float]] -- Tuple containing the cluster of keywords and the
                                                     cluster separation if include_cluster_sep == True
@@ -167,7 +166,7 @@ class KeywordTrapdoorMatchmaker:
 
     def _sub_pred(
         self,
-        ind,
+        _ind,
         td_list,
         k=0,
         cluster_max_size=0,
@@ -212,7 +211,7 @@ class KeywordTrapdoorMatchmaker:
             score_list.sort(key=lambda tup: tup[1])
 
             if cluster_max_size:  # Cluster mode
-                cluster = self.__scores_to_cluster(
+                cluster = self.best_candidate_clustering(
                     score_list,
                     cluster_max_size=cluster_max_size,
                     cluster_min_sensitivity=cluster_min_sensitivity,
@@ -233,37 +232,37 @@ class KeywordTrapdoorMatchmaker:
         Returns a prediction for each trapdoor in the list. No refinement. No clustering.
         Arguments:
             trapdoor_list {List[str]} -- List of the trapdoors to match with a keyword
-        
+
         Keyword Arguments:
             k {int} -- the number of highest score keyword wanted for each trapdoor (default: {None})
-        
+
         Returns:
             dict[trapdoor, predictions] -- dictionary with a list of k predictions for each trapdoor
         """
         if k is None:
             k = len(self.kw_voc_info)
         prediction = {}
-        NUM_CORES = multiprocessing.cpu_count()
+        nb_cores = multiprocessing.cpu_count()
         logger.info("Evaluating every possible keyword-trapdoor pair")
-        with poolcontext(processes=NUM_CORES) as pool:
+        with poolcontext(processes=nb_cores) as pool:
             pred_func = partial(self._sub_pred, k=k)
             results = pool.starmap(
                 pred_func,
-                enumerate([trapdoor_list[i::NUM_CORES] for i in range(NUM_CORES)]),
+                enumerate([trapdoor_list[i::nb_cores] for i in range(nb_cores)]),
             )
             prediction = dict(reduce(lambda x, y: x + y, results))
         return prediction
 
     def predict_with_refinement(self, trapdoor_list, cluster_max_size=10, ref_speed=0):
         """Returns a cluster of predictions for each trapdoor using refinement.
-        
+
         Arguments:
             trapdoor_list {List[str]} -- List of the trapdoors to match with a keyword
-        
+
         Keyword Arguments:
             cluster_max_size {int} -- Maximum size of the clusters (default: {10})
             ref_speed {int} -- Refinement speed, i.e. number of queries "learnt" after each iteration (default: {0})
-        
+
         Returns:
             dict[trapdoor, predictions] -- dictionary with a list of k predictions for each trapdoor
         """
@@ -271,11 +270,11 @@ class KeywordTrapdoorMatchmaker:
             # Default refinement speed: 5% of the total number of trapdoors
             ref_speed = int(0.05 * len(self.td_voc_info))
         old_known = self._known_queries.copy()
-        NUM_CORES = multiprocessing.cpu_count()
+        nb_cores = multiprocessing.cpu_count()
         local_td_list = list(trapdoor_list)
 
         final_results = []
-        with poolcontext(processes=NUM_CORES) as pool, tqdm.tqdm(
+        with poolcontext(processes=nb_cores) as pool, tqdm.tqdm(
             total=len(trapdoor_list), desc="Refining predictions"
         ) as pbar:
             while True:
@@ -291,7 +290,7 @@ class KeywordTrapdoorMatchmaker:
                 )
                 results = pool.starmap(  # Launch parallel predictions
                     pred_func,
-                    enumerate([local_td_list[i::NUM_CORES] for i in range(NUM_CORES)]),
+                    enumerate([local_td_list[i::nb_cores] for i in range(nb_cores)]),
                 )
                 results = reduce(lambda x, y: x + y, results)
 
@@ -324,14 +323,14 @@ class KeywordTrapdoorMatchmaker:
         self._refresh_reduced_coocc()
         return prediction
 
-    def accuracy(self, k=1, eval_dico=None):
+    def base_accuracy(self, k=1, eval_dico=None):
         """Compute the base accuracy on the evaluation dictionary.
         No refinement. No clustering.
-        
+
         Keyword Arguments:
             k {int} -- size of the prediction lists (default: {1})
             eval_dico {dict[trapdoor, keyword]} -- Evaluation dictionary (default: {None})
-        
+
         Returns:
             Tuple[float, dict[trapdoor, List[keyword]]] -- a tuple containing the accuracy and the prediction dictionary
         """
@@ -348,6 +347,33 @@ class KeywordTrapdoorMatchmaker:
         eval_trapdoors = list(local_eval_dico.keys())
 
         res_dict = self.predict(trapdoor_list=eval_trapdoors, k=k)
+        match_list = [
+            eval_kw in res_dict[eval_td] for eval_td, eval_kw in local_eval_dico.items()
+        ]
+        recovery_rate = sum(match_list) / len(local_eval_dico)
+        return recovery_rate, res_dict
+
+    def queryvolution_accuracy(self, eval_dico=None):
+        """Compute the QueRyvolution accuracy on the evaluation dictionary.
+
+        Keyword Arguments:
+            eval_dico {dict[trapdoor, keyword]} -- Evaluation dictionary (default: {None})
+
+        Returns:
+            Tuple[float, dict[trapdoor, List[keyword]]] -- a tuple containing the accuracy and the prediction dictionary
+        """
+        assert self.td_voc_info
+
+        if eval_dico is None:
+            logger.warning("Experimental setup is enabled.")
+            # Trapdoor vocabulary is not a list of tokens but directly the list of keywords.
+            local_eval_dico = {kw: kw for kw in self.td_voc_info.keys()}
+        else:
+            local_eval_dico = eval_dico
+            # Keys: Trapdoors; Values: Keywords
+        eval_trapdoors = list(local_eval_dico.keys())
+
+        res_dict = self.predict_with_refinement(trapdoor_list=eval_trapdoors)
         match_list = [
             eval_kw in res_dict[eval_td] for eval_td, eval_kw in local_eval_dico.items()
         ]
