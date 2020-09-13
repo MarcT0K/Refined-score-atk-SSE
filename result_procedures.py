@@ -1,10 +1,10 @@
 """Functions used to produce the results presented in the paper.
 """
 import argparse
-import csv
-import colorlog
 import contextlib
+import csv
 import hashlib
+import colorlog
 import numpy as np
 import tqdm
 
@@ -528,7 +528,7 @@ def ref_voc_size_results(result_file="ref_voc_size.csv"):
             "Similar/Server voc size",
             "Nb queries seen",
             "Nb queries known",
-            "Ref acc",
+            "QueRyvolution acc",
         ]
         writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
         writer.writeheader()
@@ -587,7 +587,7 @@ def ref_voc_size_results(result_file="ref_voc_size.csv"):
                     "Similar/Server voc size": voc_size,
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
-                    "Ref acc": ref_acc,
+                    "QueRyvolution acc": ref_acc,
                 }
             )
 
@@ -614,7 +614,7 @@ def countermeasure_results(result_file="countermeasures.csv"):
             "Similar/Server voc size",
             "Nb queries seen",
             "Nb queries known",
-            "Ref acc",
+            "QueRyvolution acc",
         ]
         writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
         writer.writeheader()
@@ -674,7 +674,7 @@ def countermeasure_results(result_file="countermeasures.csv"):
                     "Similar/Server voc size": voc_size,
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
-                    "Ref acc": ref_acc,
+                    "QueRyvolution acc": ref_acc,
                 }
             )
 
@@ -688,7 +688,7 @@ def generalization(result_file="generalization.csv"):
             "Similar/Server voc size",
             "Nb queries seen",
             "Nb queries known",
-            "Ref acc",
+            "QueRyvolution acc",
         ]
         writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
         writer.writeheader()
@@ -746,7 +746,7 @@ def generalization(result_file="generalization.csv"):
                     "Similar/Server voc size": voc_size,
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
-                    "Ref acc": ref_acc,
+                    "QueRyvolution acc": ref_acc,
                 }
             )
 
@@ -799,6 +799,91 @@ def generalization(result_file="generalization.csv"):
                     "Similar/Server voc size": voc_size,
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
-                    "Ref acc": ref_acc,
+                    "QueRyvolution acc": ref_acc,
+                }
+            )
+
+
+def query_distrib_results(result_file="query_distrib.csv"):
+    setup_logger()
+    voc_size_possibilities = [1000, 2000, 4000]
+    comb_voc_sizes = [
+        (i, j)
+        for i in voc_size_possibilities  # Voc size
+        for j in ["uniform", "zipfian", "inv_zipfian"]
+        for _k in range(10)
+    ]
+
+    with open(result_file, "w", newline="") as csvfile:
+        fieldnames = [
+            "Query distribution",
+            "Nb similar docs",
+            "Nb server docs",
+            "Similar/Server voc size",
+            "Nb queries seen",
+            "Nb queries known",
+            "QueRyvolution acc",
+        ]
+        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
+        writer.writeheader()
+        enron = extract_sent_mail_contents()
+        nb_known_queries = 15
+        for voc_size, query_distrib in tqdm.tqdm(
+            iterable=comb_voc_sizes,
+            desc="Running tests with different combinations of parameters",
+        ):
+            similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
+            queryset_size = int(voc_size * 0.15)
+
+            similar_extractor = KeywordExtractor(similar_docs, voc_size, 1)
+            real_extractor = QueryResultExtractor(
+                stored_docs, voc_size, 1, distribution=query_distrib
+            )
+
+            query_array, query_voc = real_extractor.get_fake_queries(queryset_size)
+
+            known_queries = generate_known_queries(
+                similar_wordlist=similar_extractor.get_sorted_voc(),
+                stored_wordlist=query_voc,
+                nb_queries=nb_known_queries,
+            )
+
+            td_voc = []
+            temp_known = {}
+            eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
+            for keyword in query_voc:
+                fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
+                td_voc.append(fake_trapdoor)
+                if known_queries.get(keyword):
+                    temp_known[fake_trapdoor] = keyword
+                eval_dico[fake_trapdoor] = keyword
+            known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
+
+            mm = KeywordTrapdoorMatchmaker(
+                keyword_occ_array=similar_extractor.occ_array,
+                keyword_sorted_voc=similar_extractor.get_sorted_voc(),
+                trapdoor_occ_array=query_array,
+                trapdoor_sorted_voc=td_voc,
+                known_queries=known_queries,
+            )
+            td_list = list(set(eval_dico.keys()).difference(mm._known_queries.keys()))
+
+            ref_speed = int(0.05 * queryset_size)
+            results = mm.predict_with_refinement(
+                td_list, cluster_max_size=10, ref_speed=ref_speed
+            )
+            ref_acc = np.mean(
+                [eval_dico[td] in candidates for td, candidates in results.items()]
+            )
+
+            writer.writerow(
+                {
+                    "Query distribution": query_distrib,
+                    "Nb similar docs": similar_extractor.occ_array.shape[0],
+                    "Nb server docs": real_extractor.occ_array.shape[0],
+                    "Similar/Server voc size": voc_size,
+                    "Nb queries seen": queryset_size,
+                    "Nb queries known": nb_known_queries,
+                    "QueRyvolution acc": ref_acc,
                 }
             )

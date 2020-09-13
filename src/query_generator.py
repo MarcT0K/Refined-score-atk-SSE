@@ -29,9 +29,13 @@ class QueryResultExtractor(KeywordExtractor):
             a = 1.0
             weights = x ** (-a)
             weights /= weights.sum()
+        elif distribution == "inv_zipfian":
+            a = 1.0
+            weights = (n - x + 1) ** (-a)
+            weights /= weights.sum()
         else:
             raise ValueError("Distribution not supported.")
-        self._rv = stats.rv_discrete(name="bounded_zipf", values=(x, weights))
+        self._rv = stats.rv_discrete(name="query_distribution", values=(x, weights))
 
     def __str__(self):
         return "Basic"
