@@ -8,7 +8,7 @@ import colorlog
 import numpy as np
 import tqdm
 
-from .common import poolcontext
+from queryvolution.src.common import poolcontext
 
 logger = colorlog.getLogger("QueRyvolution")
 

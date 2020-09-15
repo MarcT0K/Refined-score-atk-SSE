@@ -3,14 +3,22 @@ import hashlib
 
 import colorlog
 
-from src.common import KeywordExtractor, generate_known_queries, setup_logger
-from src.email_extraction import split_df, extract_sent_mail_contents, extract_apache_ml
-from src.query_generator import (
+from queryvolution.src.common import (
+    KeywordExtractor,
+    generate_known_queries,
+    setup_logger,
+)
+from queryvolution.src.email_extraction import (
+    split_df,
+    extract_sent_mail_contents,
+    extract_apache_ml,
+)
+from queryvolution.src.query_generator import (
     QueryResultExtractor,
     ObfuscatedResultExtractor,
     PaddedResultExtractor,
 )
-from src.matchmaker import KeywordTrapdoorMatchmaker
+from queryvolution.src.matchmaker import KeywordTrapdoorMatchmaker
 
 logger = colorlog.getLogger("QueRyvolution")
 

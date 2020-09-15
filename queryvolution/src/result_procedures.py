@@ -1,198 +1,201 @@
 """Functions used to produce the results presented in the paper.
 """
-import argparse
-import contextlib
 import csv
 import hashlib
 import colorlog
 import numpy as np
-import tqdm
 
-from src.common import KeywordExtractor, generate_known_queries, setup_logger
-from src.email_extraction import split_df, extract_sent_mail_contents, extract_apache_ml
-from src.query_generator import (
+from queryvolution.src.common import KeywordExtractor, generate_known_queries
+from queryvolution.src.email_extraction import (
+    split_df,
+    extract_sent_mail_contents,
+    extract_apache_ml,
+)
+from queryvolution.src.query_generator import (
     QueryResultExtractor,
     ObfuscatedResultExtractor,
     PaddedResultExtractor,
 )
-from src.matchmaker import KeywordTrapdoorMatchmaker, GeneralMatchmaker
-from attack_scenario import DocumentSetExtraction
+from queryvolution.src.matchmaker import KeywordTrapdoorMatchmaker, GeneralMatchmaker
+from queryvolution.attack_scenario import DocumentSetExtraction
 
 logger = colorlog.getLogger("QueRyvolution")
+NB_REP = 50
 
 
-def understand_variance(*args, **kwargs):
-    """Procedure to simulate an inference attack.
-    """
-    setup_logger()
-    # Params
-    similar_voc_size = kwargs.get("similar_voc_size", 1000)
-    server_voc_size = kwargs.get("server_voc_size", 1000)
-    queryset_size = kwargs.get("queryset_size", 150)
-    nb_known_queries = kwargs.get("nb_known_queries", 5)
-    attack_dataset = kwargs.get("attack_dataset", "enron")
-    countermeasure = kwargs.get("countermeasure")
+def understand_variance(result_file="variance_understanding.csv"):
+    similar_voc_size = 1000
+    server_voc_size = 1000
+    queryset_size = 150
+    nb_known_queries = 5
     logger.debug(f"Server vocabulary size: {server_voc_size}")
     logger.debug(f"Similar vocabulary size: {similar_voc_size}")
-    if kwargs.get("L2"):
-        logger.debug("L2 Scheme")
-    else:
-        logger.debug(
-            f"L1 Scheme => Queryset size: {queryset_size}, Known queries: {nb_known_queries}"
-        )
 
-    try:
-        extraction_procedure = DocumentSetExtraction[attack_dataset]
-    except KeyError:
-        raise ValueError("Unknown dataset")
+    documents = extract_sent_mail_contents()
 
-    logger.info("ATTACK BEGINS")
-    similar_docs, stored_docs = split_df(dframe=extraction_procedure(), frac=0.4)
+    with open(result_file, "w", newline="") as csvfile:
+        fieldnames = [
+            "Setup",
+            "Nb similar docs",
+            "Nb server docs",
+            "Similar voc size",
+            "Server voc size",
+            "Nb queries seen",
+            "Nb queries known",
+            "QueRyvolution Acc",
+        ]
+        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
+        writer.writeheader()
+        for i in range(NB_REP):
+            logger.info(f"Experiment {i+1} out of {NB_REP}")
 
-    logger.info("Extracting keywords from similar documents.")
-    similar_extractor = KeywordExtractor(similar_docs, similar_voc_size, 1)
+            similar_docs, stored_docs = split_df(dframe=documents, frac=0.4)
+            logger.info("Extracting keywords from similar documents.")
+            similar_extractor = KeywordExtractor(similar_docs, similar_voc_size, 1)
+            logger.info("Extracting keywords from stored documents.")
+            real_extractor = QueryResultExtractor(stored_docs, server_voc_size, 1)
 
-    logger.info("Extracting keywords from stored documents.")
+            logger.info(f"Generating {queryset_size} queries from stored documents")
+            query_array, query_voc_plain = real_extractor.get_fake_queries(
+                queryset_size
+            )
+            del real_extractor
 
-    if not countermeasure:
-        real_extractor = QueryResultExtractor(stored_docs, server_voc_size, 1)
-    elif countermeasure == "obfuscation":
-        logger.debug("Obfuscation enabled")
-        real_extractor = ObfuscatedResultExtractor(stored_docs, server_voc_size, 1)
-    elif countermeasure == "padding":
-        logger.debug("Padding enabled")
-        real_extractor = PaddedResultExtractor(stored_docs, server_voc_size, 1)
-    else:
-        raise ValueError("Unknown countermeasure")
+            logger.debug(
+                f"Picking {nb_known_queries} known queries ({nb_known_queries/queryset_size*100}% of the queries)"
+            )
 
-    logger.info(f"Generating {queryset_size} queries from stored documents")
-    query_array, query_voc_plain = real_extractor.get_fake_queries(queryset_size)
-    del real_extractor
-    accuracies = []
-    for _i in range(kwargs.get("n_trials", 40)):
-        logger.debug(
-            f"Picking {nb_known_queries} known queries ({nb_known_queries/queryset_size*100}% of the queries)"
-        )
+            known_queries = generate_known_queries(  # Extracted with uniform law
+                similar_wordlist=similar_extractor.get_sorted_voc(),
+                stored_wordlist=query_voc_plain,
+                nb_queries=nb_known_queries,
+            )
 
-        known_queries = generate_known_queries(  # Extracted with uniform law
-            similar_wordlist=similar_extractor.get_sorted_voc(),
-            stored_wordlist=query_voc_plain,
-            nb_queries=nb_known_queries,
-        )
+            logger.debug(
+                "Hashing the keywords of the stored documents (transforming them into trapdoor tokens)"
+            )
+            # Trapdoor token == convey no information about the corresponding keyword
+            temp_voc = []
+            temp_known = {}
+            eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
+            for keyword in query_voc_plain:
+                # We replace each keyword of the trapdoor dictionary by its hash
+                # So the matchmaker truly ignores the keywords behind the trapdoors.
+                fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
+                temp_voc.append(fake_trapdoor)
+                if known_queries.get(keyword):
+                    temp_known[fake_trapdoor] = keyword
+                eval_dico[fake_trapdoor] = keyword
+            query_voc = temp_voc
+            known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-        logger.debug(
-            "Hashing the keywords of the stored documents (transforming them into trapdoor tokens)"
-        )
-        # Trapdoor token == convey no information about the corresponding keyword
-        temp_voc = []
-        temp_known = {}
-        eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
-        for keyword in query_voc_plain:
-            # We replace each keyword of the trapdoor dictionary by its hash
-            # So the matchmaker truly ignores the keywords behind the trapdoors.
-            fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
-            temp_voc.append(fake_trapdoor)
-            if known_queries.get(keyword):
-                temp_known[fake_trapdoor] = keyword
-            eval_dico[fake_trapdoor] = keyword
-        query_voc = temp_voc
-        known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
+            matchmaker = KeywordTrapdoorMatchmaker(
+                keyword_occ_array=similar_extractor.occ_array,
+                keyword_sorted_voc=similar_extractor.get_sorted_voc(),
+                trapdoor_occ_array=query_array,
+                trapdoor_sorted_voc=query_voc,
+                known_queries=known_queries,
+            )
+            td_list = list(
+                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+            )
 
-        matchmaker = KeywordTrapdoorMatchmaker(
-            keyword_occ_array=similar_extractor.occ_array,
-            keyword_sorted_voc=similar_extractor.get_sorted_voc(),
-            trapdoor_occ_array=query_array,
-            trapdoor_sorted_voc=query_voc,
-            known_queries=known_queries,
-        )
-        td_list = list(
-            set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
-        )
+            res_ref = matchmaker.predict_with_refinement(
+                td_list, cluster_max_size=10, ref_speed=10
+            )
+            ref_acc = np.mean(
+                [eval_dico[td] in candidates for td, candidates in res_ref.items()]
+            )
+            writer.writerow(
+                {
+                    "Setup": "Normal",
+                    "Nb similar docs": similar_docs.shape[0],
+                    "Nb server docs": stored_docs.shape[0],
+                    "Similar voc size": similar_voc_size,
+                    "Server voc size": server_voc_size,
+                    "Nb queries seen": queryset_size,
+                    "Nb queries known": nb_known_queries,
+                    "QueRyvolution Acc": ref_acc,
+                }
+            )
 
-        results = matchmaker.predict(td_list, k=1)
-        base_acc = np.mean(
-            [eval_dico[td] in candidates for td, candidates in results.items()]
-        )
-        res_ref = matchmaker.predict_with_refinement(
-            td_list, cluster_max_size=10, ref_speed=10
-        )
-        ref_acc = np.mean(
-            [eval_dico[td] in candidates for td, candidates in res_ref.items()]
-        )
-        logger.info(f"Base accuracy: {base_acc} / Refinement accuracy: {ref_acc}")
-        accuracies.append(ref_acc)
+            logger.debug(
+                f"Picking {nb_known_queries} known queries ({nb_known_queries/queryset_size*100}% of the queries)"
+            )
 
-    accuracies_frequent = []
-    for _i in range(kwargs.get("n_trials", 40)):
-        logger.debug(
-            f"Picking {nb_known_queries} known queries ({nb_known_queries/queryset_size*100}% of the queries)"
-        )
+            stored_wordlist = query_voc_plain[: len(query_voc_plain) // 4]
+            known_queries = generate_known_queries(  # Extracted with uniform law
+                similar_wordlist=similar_extractor.get_sorted_voc(),
+                stored_wordlist=stored_wordlist,
+                nb_queries=nb_known_queries,
+            )
 
-        stored_wordlist = query_voc_plain[: len(query_voc_plain) // 4]
+            logger.debug(
+                "Hashing the keywords of the stored documents (transforming them into trapdoor tokens)"
+            )
+            # Trapdoor token == convey no information about the corresponding keyword
+            temp_voc = []
+            temp_known = {}
+            eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
+            for keyword in query_voc_plain:
+                # We replace each keyword of the trapdoor dictionary by its hash
+                # So the matchmaker truly ignores the keywords behind the trapdoors.
+                fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
+                temp_voc.append(fake_trapdoor)
+                if known_queries.get(keyword):
+                    temp_known[fake_trapdoor] = keyword
+                eval_dico[fake_trapdoor] = keyword
+            query_voc = temp_voc
+            known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-        known_queries = generate_known_queries(  # Extracted with uniform law
-            similar_wordlist=similar_extractor.get_sorted_voc(),
-            stored_wordlist=stored_wordlist,
-            nb_queries=nb_known_queries,
-        )
+            matchmaker = KeywordTrapdoorMatchmaker(
+                keyword_occ_array=similar_extractor.occ_array,
+                keyword_sorted_voc=similar_extractor.get_sorted_voc(),
+                trapdoor_occ_array=query_array,
+                trapdoor_sorted_voc=query_voc,
+                known_queries=known_queries,
+            )
+            td_list = list(
+                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+            )
 
-        logger.debug(
-            "Hashing the keywords of the stored documents (transforming them into trapdoor tokens)"
-        )
-        # Trapdoor token == convey no information about the corresponding keyword
-        temp_voc = []
-        temp_known = {}
-        eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
-        for keyword in query_voc_plain:
-            # We replace each keyword of the trapdoor dictionary by its hash
-            # So the matchmaker truly ignores the keywords behind the trapdoors.
-            fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
-            temp_voc.append(fake_trapdoor)
-            if known_queries.get(keyword):
-                temp_known[fake_trapdoor] = keyword
-            eval_dico[fake_trapdoor] = keyword
-        query_voc = temp_voc
-        known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
-
-        matchmaker = KeywordTrapdoorMatchmaker(
-            keyword_occ_array=similar_extractor.occ_array,
-            keyword_sorted_voc=similar_extractor.get_sorted_voc(),
-            trapdoor_occ_array=query_array,
-            trapdoor_sorted_voc=query_voc,
-            known_queries=known_queries,
-        )
-        td_list = list(
-            set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
-        )
-
-        results = matchmaker.predict(td_list, k=1)
-        base_acc = np.mean(
-            [eval_dico[td] in candidates for td, candidates in results.items()]
-        )
-        res_ref = matchmaker.predict_with_refinement(
-            td_list, cluster_max_size=10, ref_speed=10
-        )
-        ref_acc = np.mean(
-            [eval_dico[td] in candidates for td, candidates in res_ref.items()]
-        )
-        logger.info(f"Base accuracy: {base_acc} / Refinement accuracy: {ref_acc}")
-        accuracies_frequent.append(ref_acc)
-
-    return accuracies, accuracies_frequent
+            res_ref = matchmaker.predict_with_refinement(
+                td_list, cluster_max_size=10, ref_speed=10
+            )
+            ref_acc = np.mean(
+                [eval_dico[td] in candidates for td, candidates in res_ref.items()]
+            )
+            writer.writerow(
+                {
+                    "Setup": "Top 25%",
+                    "Nb similar docs": similar_docs.shape[0],
+                    "Nb server docs": stored_docs.shape[0],
+                    "Similar voc size": similar_voc_size,
+                    "Server voc size": server_voc_size,
+                    "Nb queries seen": queryset_size,
+                    "Nb queries known": nb_known_queries,
+                    "QueRyvolution Acc": ref_acc,
+                }
+            )
 
 
-def mean_cluster_size(*args, **kwargs):
-    setup_logger()
+def cluster_size_statistics(result_file="cluster_size.csv"):
     # Params
     similar_voc_size = 1000
     server_voc_size = 1000
     queryset_size = 150
     nb_known_queries = 15
+    max_cluster_sizes = [1, 5, 10, 20, 30, 50]
 
-    cluster_sizes = []
-    for _i in range(kwargs.get("n_trials", 10)):
+    cluster_results = {
+        max_size: {"accuracies": [], "cluster_sizes": []}
+        for max_size in max_cluster_sizes
+    }
+
+    for i in range(NB_REP):
+        logger.info(f"Experiment {i+1} out of {NB_REP}")
         similar_docs, stored_docs = split_df(
-            dframe=extract_sent_mail_contents, frac=0.4
+            dframe=extract_sent_mail_contents(), frac=0.4
         )
 
         logger.info("Extracting keywords from similar documents.")
@@ -241,25 +244,62 @@ def mean_cluster_size(*args, **kwargs):
             known_queries=known_queries,
         )
 
-        res_ref = matchmaker.predict_with_refinement(
-            list(eval_dico.keys()), cluster_max_size=10, ref_speed=10
-        )
-        ref_acc = np.mean(
-            [eval_dico[td] in candidates for td, candidates in res_ref.items()]
-        )
-        clust_temp_sizes = [len(candidates) for candidates in res_ref.values()]
-        cluster_sizes.extend(clust_temp_sizes)
-    return cluster_sizes
+        for cluster_max_size in max_cluster_sizes:
+            res_ref = matchmaker.predict_with_refinement(
+                list(eval_dico.keys()), cluster_max_size=cluster_max_size, ref_speed=10
+            )
+            ref_acc = np.mean(
+                [eval_dico[td] in candidates for td, candidates in res_ref.items()]
+            )
+            clust_temp_sizes = [len(candidates) for candidates in res_ref.values()]
+            cluster_results[cluster_max_size]["cluster_sizes"].extend(clust_temp_sizes)
+            cluster_results[cluster_max_size]["accuracies"].append(ref_acc)
+
+    with open(result_file, "w", newline="") as csvfile:
+        fieldnames = [
+            "Cluster maximum size",
+            "Mean",
+            "Median",
+            "q0.6",
+            "q0.7",
+            "q0.75",
+            "q0.8",
+            "q0.85",
+            "q0.9",
+            "q0.95",
+            "q0.99",
+            "Average acc",
+            "Cluster sizes",
+        ]
+        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
+        writer.writeheader()
+        for cluster_max_size, results in cluster_results.items():
+            writer.writerow(
+                {
+                    "Cluster maximum size": cluster_max_size,
+                    "Mean": np.mean(results["cluster_sizes"]),
+                    "Median": np.quantile(results["cluster_sizes"], 0.5),
+                    "q0.6": np.quantile(results["cluster_sizes"], 0.6),
+                    "q0.7": np.quantile(results["cluster_sizes"], 0.7),
+                    "q0.75": np.quantile(results["cluster_sizes"], 0.75),
+                    "q0.8": np.quantile(results["cluster_sizes"], 0.8),
+                    "q0.85": np.quantile(results["cluster_sizes"], 0.85),
+                    "q0.9": np.quantile(results["cluster_sizes"], 0.9),
+                    "q0.95": np.quantile(results["cluster_sizes"], 0.95),
+                    "q0.99": np.quantile(results["cluster_sizes"], 0.99),
+                    "Average acc": np.mean(results["accuracies"]),
+                    "Cluster sizes": results["cluster_sizes"],
+                }
+            )
 
 
-def base_results(result_file="base.csv"):
-    setup_logger()
+def base_results(result_file="base_attack.csv"):
     voc_size_possibilities = [500, 1000, 2000, 4000]
-    comb_voc_sizes = [
+    experiment_params = [
         (i, j)
         for i in voc_size_possibilities  # Voc size
         for j in [15, 30, 60]  # known queries
-        for _k in range(5)
+        for _k in range(NB_REP)
     ]
 
     with open(result_file, "w", newline="") as csvfile:
@@ -274,10 +314,8 @@ def base_results(result_file="base.csv"):
         writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
         writer.writeheader()
         enron = extract_sent_mail_contents()
-        for voc_size, nb_known_queries in tqdm.tqdm(
-            iterable=comb_voc_sizes,
-            desc="Running tests with different combinations of parameters",
-        ):
+        for (i, (voc_size, nb_known_queries)) in enumerate(experiment_params):
+            logger.info(f"Experiment {i+1} out of {len(experiment_params)}")
             similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
             queryset_size = int(voc_size * 0.15)
 
@@ -303,16 +341,18 @@ def base_results(result_file="base.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            mm = KeywordTrapdoorMatchmaker(
+            matchmaker = KeywordTrapdoorMatchmaker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
                 trapdoor_sorted_voc=td_voc,
                 known_queries=known_queries,
             )
-            td_list = list(set(eval_dico.keys()).difference(mm._known_queries.keys()))
+            td_list = list(
+                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+            )
 
-            results = mm.predict(td_list, k=1)
+            results = matchmaker.predict(td_list, k=1)
             base_acc = np.mean(
                 [eval_dico[td] in candidates for td, candidates in results.items()]
             )
@@ -329,9 +369,10 @@ def base_results(result_file="base.csv"):
             )
 
 
-def comp_results(result_file="comp.csv"):
-    setup_logger()
-    comb_voc_sizes = [j for j in [5, 10, 20, 40] for _k in range(10)]  # known queries
+def attack_comparison(result_file="attack_comparison.csv"):
+    experiment_params = [
+        j for j in [5, 10, 20, 40] for _k in range(NB_REP)
+    ]  # known queries
 
     similar_voc_size = 1200
     real_voc_size = 1000
@@ -350,10 +391,8 @@ def comp_results(result_file="comp.csv"):
         writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
         writer.writeheader()
         enron = extract_sent_mail_contents()
-        for nb_known_queries in tqdm.tqdm(
-            iterable=comb_voc_sizes,
-            desc="Running tests with different combinations of parameters",
-        ):
+        for (i, nb_known_queries) in enumerate(experiment_params):
+            logger.info(f"Experiment {i+1} out of {len(experiment_params)}")
             similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
             queryset_size = int(real_voc_size * 0.15)
 
@@ -379,28 +418,30 @@ def comp_results(result_file="comp.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            mm = KeywordTrapdoorMatchmaker(
+            matchmaker = KeywordTrapdoorMatchmaker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
                 trapdoor_sorted_voc=td_voc,
                 known_queries=known_queries,
             )
-            td_list = list(set(eval_dico.keys()).difference(mm._known_queries.keys()))
+            td_list = list(
+                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+            )
 
-            results = mm.predict(td_list, k=1)
+            results = matchmaker.predict(td_list, k=1)
             base_acc = np.mean(
                 [eval_dico[td] in candidates for td, candidates in results.items()]
             )
 
-            results = dict(mm._sub_pred(0, td_list, cluster_max_size=10))
+            results = dict(matchmaker._sub_pred(0, td_list, cluster_max_size=10))
             clust_acc = np.mean(
                 [eval_dico[td] in candidates for td, candidates in results.items()]
             )
 
             ref_speed = int(0.05 * queryset_size)
 
-            results = mm.predict_with_refinement(
+            results = matchmaker.predict_with_refinement(
                 td_list, cluster_max_size=10, ref_speed=ref_speed
             )
             ref_acc = np.mean(
@@ -429,14 +470,13 @@ def apache_reduced():
     return apache_red
 
 
-def ref_results(result_file="ref.csv"):
-    setup_logger()
+def document_set_results(result_file="document_set.csv"):
     email_extractors = [
         (extract_sent_mail_contents, "Enron"),
         (extract_apache_ml, "Apache"),
         (apache_reduced, "Apache reduced"),
     ]
-    queryset_sizes = [i for i in [150, 300, 600, 1000] for _j in range(10)]
+    queryset_sizes = [i for i in [150, 300, 600, 1000] for _j in range(NB_REP)]
 
     similar_voc_size = 1000
     real_voc_size = 1000
@@ -453,12 +493,14 @@ def ref_results(result_file="ref.csv"):
         ]
         writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
         writer.writeheader()
+        i = 0
         for extractor, dataset in email_extractors:
             emails = extractor()
-            for queryset_size in tqdm.tqdm(
-                iterable=queryset_sizes,
-                desc="Running tests with different combinations of parameters",
-            ):
+            for queryset_size in queryset_sizes:
+                i += 1
+                logger.info(
+                    f"Experiment {i} out of {len(email_extractors)*len(queryset_sizes)}"
+                )
                 similar_docs, stored_docs = split_df(dframe=emails, frac=0.4)
 
                 similar_extractor = KeywordExtractor(similar_docs, similar_voc_size, 1)
@@ -483,7 +525,7 @@ def ref_results(result_file="ref.csv"):
                     eval_dico[fake_trapdoor] = keyword
                 known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-                mm = KeywordTrapdoorMatchmaker(
+                matchmaker = KeywordTrapdoorMatchmaker(
                     keyword_occ_array=similar_extractor.occ_array,
                     keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                     trapdoor_occ_array=query_array,
@@ -491,11 +533,11 @@ def ref_results(result_file="ref.csv"):
                     known_queries=known_queries,
                 )
                 td_list = list(
-                    set(eval_dico.keys()).difference(mm._known_queries.keys())
+                    set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
                 )
 
                 ref_speed = int(0.05 * queryset_size)
-                results = mm.predict_with_refinement(
+                results = matchmaker.predict_with_refinement(
                     td_list, cluster_max_size=10, ref_speed=ref_speed
                 )
                 ref_acc = np.mean(
@@ -516,86 +558,9 @@ def ref_results(result_file="ref.csv"):
                 )
 
 
-def ref_voc_size_results(result_file="ref_voc_size.csv"):
-    setup_logger()
-    voc_size_possibilities = [1000, 1500, 2000, 3000, 4000]
-    comb_voc_sizes = [i for i in voc_size_possibilities for _k in range(5)]  # Voc size
-
-    with open(result_file, "w", newline="") as csvfile:
-        fieldnames = [
-            "Nb similar docs",
-            "Nb server docs",
-            "Similar/Server voc size",
-            "Nb queries seen",
-            "Nb queries known",
-            "QueRyvolution acc",
-        ]
-        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
-        writer.writeheader()
-        enron = extract_sent_mail_contents()
-        nb_known_queries = 20
-        for voc_size in tqdm.tqdm(
-            iterable=comb_voc_sizes,
-            desc="Running tests with different combinations of parameters",
-        ):
-            similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
-            queryset_size = int(voc_size * 0.15)
-
-            similar_extractor = KeywordExtractor(similar_docs, voc_size, 1)
-            real_extractor = QueryResultExtractor(stored_docs, voc_size, 1)
-
-            query_array, query_voc = real_extractor.get_fake_queries(queryset_size)
-
-            known_queries = generate_known_queries(
-                similar_wordlist=similar_extractor.get_sorted_voc(),
-                stored_wordlist=query_voc,
-                nb_queries=nb_known_queries,
-            )
-
-            td_voc = []
-            temp_known = {}
-            eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
-            for keyword in query_voc:
-                fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
-                td_voc.append(fake_trapdoor)
-                if known_queries.get(keyword):
-                    temp_known[fake_trapdoor] = keyword
-                eval_dico[fake_trapdoor] = keyword
-            known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
-
-            mm = KeywordTrapdoorMatchmaker(
-                keyword_occ_array=similar_extractor.occ_array,
-                keyword_sorted_voc=similar_extractor.get_sorted_voc(),
-                trapdoor_occ_array=query_array,
-                trapdoor_sorted_voc=td_voc,
-                known_queries=known_queries,
-            )
-            td_list = list(set(eval_dico.keys()).difference(mm._known_queries.keys()))
-
-            ref_speed = int(0.05 * queryset_size)
-            results = mm.predict_with_refinement(
-                td_list, cluster_max_size=10, ref_speed=ref_speed
-            )
-            ref_acc = np.mean(
-                [eval_dico[td] in candidates for td, candidates in results.items()]
-            )
-
-            writer.writerow(
-                {
-                    "Nb similar docs": similar_extractor.occ_array.shape[0],
-                    "Nb server docs": real_extractor.occ_array.shape[0],
-                    "Similar/Server voc size": voc_size,
-                    "Nb queries seen": queryset_size,
-                    "Nb queries known": nb_known_queries,
-                    "QueRyvolution acc": ref_acc,
-                }
-            )
-
-
 def countermeasure_results(result_file="countermeasures.csv"):
-    setup_logger()
     voc_size_possibilities = [500, 1000, 2000, 4000]
-    comb_voc_sizes = [
+    experiment_params = [
         (i, j)
         for i in voc_size_possibilities  # Voc size
         for j in [
@@ -603,7 +568,7 @@ def countermeasure_results(result_file="countermeasures.csv"):
             ObfuscatedResultExtractor,
             PaddedResultExtractor,
         ]
-        for _k in range(5)
+        for _k in range(NB_REP)
     ]
 
     with open(result_file, "w", newline="") as csvfile:
@@ -620,10 +585,8 @@ def countermeasure_results(result_file="countermeasures.csv"):
         writer.writeheader()
         enron = extract_sent_mail_contents()
         nb_known_queries = 15
-        for voc_size, query_extractor in tqdm.tqdm(
-            iterable=comb_voc_sizes,
-            desc="Running tests with different combinations of parameters",
-        ):
+        for (i, (voc_size, query_extractor)) in enumerate(experiment_params):
+            logger.info(f"Experiment {i+1} out of {len(experiment_params)}")
             similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
             queryset_size = int(voc_size * 0.15)
 
@@ -631,6 +594,7 @@ def countermeasure_results(result_file="countermeasures.csv"):
             real_extractor = query_extractor(stored_docs, voc_size, 1)
 
             query_array, query_voc = real_extractor.get_fake_queries(queryset_size)
+            del real_extractor
 
             known_queries = generate_known_queries(
                 similar_wordlist=similar_extractor.get_sorted_voc(),
@@ -649,17 +613,19 @@ def countermeasure_results(result_file="countermeasures.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            mm = KeywordTrapdoorMatchmaker(
+            matchmaker = KeywordTrapdoorMatchmaker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
                 trapdoor_sorted_voc=td_voc,
                 known_queries=known_queries,
             )
-            td_list = list(set(eval_dico.keys()).difference(mm._known_queries.keys()))
+            td_list = list(
+                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+            )
 
             ref_speed = int(0.05 * queryset_size)
-            results = mm.predict_with_refinement(
+            results = matchmaker.predict_with_refinement(
                 td_list, cluster_max_size=10, ref_speed=ref_speed
             )
             ref_acc = np.mean(
@@ -669,8 +635,8 @@ def countermeasure_results(result_file="countermeasures.csv"):
             writer.writerow(
                 {
                     "Countermeasure": str(query_extractor),
-                    "Nb similar docs": similar_extractor.occ_array.shape[0],
-                    "Nb server docs": real_extractor.occ_array.shape[0],
+                    "Nb similar docs": similar_docs.shape[0],
+                    "Nb server docs": stored_docs.shape[0],
                     "Similar/Server voc size": voc_size,
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
@@ -697,7 +663,7 @@ def generalization(result_file="generalization.csv"):
         queryset_size = 75
         nb_known_queries = 10
 
-        for _i in range(10):
+        for _i in range(NB_REP):
             similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
 
             similar_extractor = KeywordExtractor(similar_docs, voc_size, 1)
@@ -722,7 +688,7 @@ def generalization(result_file="generalization.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            mm = GeneralMatchmaker(
+            matchmaker = GeneralMatchmaker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
@@ -730,9 +696,11 @@ def generalization(result_file="generalization.csv"):
                 known_queries=known_queries,
                 coocc_ord=3,
             )
-            td_list = list(set(eval_dico.keys()).difference(mm._known_queries.keys()))
+            td_list = list(
+                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+            )
 
-            results = mm.predict_with_refinement(
+            results = matchmaker.predict_with_refinement(
                 td_list, cluster_max_size=10, ref_speed=5
             )
             ref_acc = np.mean(
@@ -750,7 +718,7 @@ def generalization(result_file="generalization.csv"):
                 }
             )
 
-        for _i in range(10):
+        for _i in range(NB_REP):  # TODO merge with previous loop
             similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
 
             similar_extractor = KeywordExtractor(similar_docs, voc_size, 1)
@@ -775,16 +743,18 @@ def generalization(result_file="generalization.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            mm = KeywordTrapdoorMatchmaker(
+            matchmaker = KeywordTrapdoorMatchmaker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
                 trapdoor_sorted_voc=td_voc,
                 known_queries=known_queries,
             )
-            td_list = list(set(eval_dico.keys()).difference(mm._known_queries.keys()))
+            td_list = list(
+                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+            )
 
-            results = mm.predict_with_refinement(
+            results = matchmaker.predict_with_refinement(
                 td_list, cluster_max_size=10, ref_speed=5
             )
             ref_acc = np.mean(
@@ -805,13 +775,12 @@ def generalization(result_file="generalization.csv"):
 
 
 def query_distrib_results(result_file="query_distrib.csv"):
-    setup_logger()
     voc_size_possibilities = [1000, 2000, 4000]
-    comb_voc_sizes = [
+    experiment_params = [
         (i, j)
         for i in voc_size_possibilities  # Voc size
         for j in ["uniform", "zipfian", "inv_zipfian"]
-        for _k in range(10)
+        for _k in range(NB_REP)
     ]
 
     with open(result_file, "w", newline="") as csvfile:
@@ -828,10 +797,8 @@ def query_distrib_results(result_file="query_distrib.csv"):
         writer.writeheader()
         enron = extract_sent_mail_contents()
         nb_known_queries = 15
-        for voc_size, query_distrib in tqdm.tqdm(
-            iterable=comb_voc_sizes,
-            desc="Running tests with different combinations of parameters",
-        ):
+        for (i, (voc_size, query_distrib)) in enumerate(experiment_params):
+            logger.info(f"Experiment {i+1} out of {len(experiment_params)}")
             similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
             queryset_size = int(voc_size * 0.15)
 
@@ -859,17 +826,19 @@ def query_distrib_results(result_file="query_distrib.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            mm = KeywordTrapdoorMatchmaker(
+            matchmaker = KeywordTrapdoorMatchmaker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
                 trapdoor_sorted_voc=td_voc,
                 known_queries=known_queries,
             )
-            td_list = list(set(eval_dico.keys()).difference(mm._known_queries.keys()))
+            td_list = list(
+                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+            )
 
             ref_speed = int(0.05 * queryset_size)
-            results = mm.predict_with_refinement(
+            results = matchmaker.predict_with_refinement(
                 td_list, cluster_max_size=10, ref_speed=ref_speed
             )
             ref_acc = np.mean(

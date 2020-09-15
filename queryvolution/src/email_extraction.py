@@ -36,7 +36,7 @@ def get_body_from_mboxmsg(msg):
     return body
 
 
-def extract_sent_mail_contents(maildir_directory="./maildir/") -> pd.DataFrame:
+def extract_sent_mail_contents(maildir_directory="../maildir/") -> pd.DataFrame:
     path = os.path.expanduser(maildir_directory)
     mails = glob.glob(f"{path}/*/_sent_mail/*")
 
@@ -49,7 +49,7 @@ def extract_sent_mail_contents(maildir_directory="./maildir/") -> pd.DataFrame:
     return pd.DataFrame(data={"filename": mails, "mail_body": mail_contents})
 
 
-def extract_apache_ml(maildir_directory="./apache_ml/") -> pd.DataFrame:
+def extract_apache_ml(maildir_directory="../apache_ml/") -> pd.DataFrame:
     path = os.path.expanduser(maildir_directory)
     mails = glob.glob(f"{path}/*")
     mail_contents = []

@@ -8,7 +8,7 @@ import colorlog
 import numpy as np
 import scipy.stats as stats
 
-from .common import KeywordExtractor
+from queryvolution.src.common import KeywordExtractor
 
 logger = colorlog.getLogger("QueRyvolution")
 
@@ -62,9 +62,7 @@ class QueryResultExtractor(KeywordExtractor):
 
         return sample_list
 
-    def get_fake_queries(
-        self, size=1, hide_nb_files=True
-    ) -> dict:
+    def get_fake_queries(self, size=1, hide_nb_files=True) -> dict:
         logger.info("Generating fake queries")
         sample_list = self._generate_random_sample(size=size)
 
