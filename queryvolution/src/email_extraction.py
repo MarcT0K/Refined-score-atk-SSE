@@ -5,9 +5,16 @@ import email
 import glob
 import mailbox
 import os
+import random
 
+from typing import Tuple
+
+import colorlog
 import pandas as pd
 import tqdm
+
+
+logger = colorlog.getLogger("QueRyvolution")
 
 
 def split_df(dframe, frac=0.5):
@@ -34,6 +41,38 @@ def get_body_from_mboxmsg(msg):
     body = "".join(parts)
     body = body.split("To unsubscribe")[0]
     return body
+
+
+def extract_2_enron_mailboxes(
+    maildir_directory="../maildir/"
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    path = os.path.expanduser(maildir_directory)
+
+    eligible_users = [
+        "baughman-d",
+        "gay-r",
+        "heard-m",
+        "hendrickson-s",
+        "linder-e",
+        "arnold-j",
+    ]
+
+    res = []
+
+    for mailbox_path in eligible_users:
+        mail_contents = []
+        mails = []
+        for mailfile_path in glob.glob(f"{path}/{mailbox_path}/*/*"):
+            try:
+                with open(mailfile_path, "r") as mailfile:
+                    raw_mail = mailfile.read()
+                    mail_contents.append(get_body_from_enron_email(raw_mail))
+                    mails.append(mailfile_path)
+            except IsADirectoryError:
+                pass
+        res.append(pd.DataFrame(data={"filename": mails, "mail_body": mail_contents}))
+
+    return pd.concat(res[:-1]), res[-1]
 
 
 def extract_sent_mail_contents(maildir_directory="../maildir/") -> pd.DataFrame:
