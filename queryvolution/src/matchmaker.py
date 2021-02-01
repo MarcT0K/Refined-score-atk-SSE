@@ -88,8 +88,7 @@ class KeywordTrapdoorMatchmaker:
         np.fill_diagonal(self.td_coocc, 0)
 
     def _refresh_reduced_coocc(self):
-        """Refresh the co-occurrence matrix based on the known queries.
-        """
+        """Refresh the co-occurrence matrix based on the known queries."""
         ind_known_kw = [
             self.kw_voc_info[kw]["vector_ind"] for kw in self._known_queries.values()
         ]
@@ -100,8 +99,7 @@ class KeywordTrapdoorMatchmaker:
         self.td_reduced_coocc = self.td_coocc[:, ind_known_td]
 
     def _estimate_nb_real_docs(self):
-        """Estimates the number of documents stored.
-        """
+        """Estimates the number of documents stored."""
         nb_doc_ratio_estimator = np.mean(
             [
                 self.td_voc_info[td]["word_occ"] / self.kw_voc_info[kw]["word_occ"]
@@ -122,7 +120,7 @@ class KeywordTrapdoorMatchmaker:
     @staticmethod
     def best_candidate_clustering(
         sorted_scores,
-        cluster_max_size=10,
+        cluster_max_size=1,
         cluster_min_sensitivity=0.0,
         include_cluster_sep=False,
         include_score=False,
@@ -152,7 +150,9 @@ class KeywordTrapdoorMatchmaker:
             for i, score in enumerate(sorted_scores[:-1])
         ]
         ind_max_leap, maximum_leap = max(diff_list, key=lambda tup: tup[1])
-        if maximum_leap > cluster_min_sensitivity:
+        if np.isnan(maximum_leap):
+            maximum_leap = 0
+        if maximum_leap >= cluster_min_sensitivity:
             best_candidates = [
                 ((kw, _score) if include_score else kw)
                 for kw, _score in sorted_scores[ind_max_leap:]
@@ -253,7 +253,7 @@ class KeywordTrapdoorMatchmaker:
             prediction = dict(reduce(lambda x, y: x + y, results))
         return prediction
 
-    def predict_with_refinement(self, trapdoor_list, cluster_max_size=10, ref_speed=0):
+    def predict_with_refinement(self, trapdoor_list, cluster_max_size=1, ref_speed=0):
         """Returns a cluster of predictions for each trapdoor using refinement.
 
         Arguments:

@@ -5,12 +5,17 @@ import hashlib
 import colorlog
 import numpy as np
 
-from queryvolution.src.common import KeywordExtractor, generate_known_queries
+from queryvolution.src.common import (
+    KeywordExtractor,
+    generate_known_queries,
+    compute_occ_mat,
+)
 from queryvolution.src.email_extraction import (
     split_df,
     extract_sent_mail_contents,
     extract_apache_ml,
     extract_2_enron_mailboxes,
+    extract_apache_ml_by_year,
 )
 from queryvolution.src.query_generator import (
     QueryResultExtractor,
@@ -45,7 +50,7 @@ def understand_variance(result_file="variance_understanding.csv"):
             "Nb queries known",
             "QueRyvolution Acc",
         ]
-        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for i in range(NB_REP):
             logger.info(f"Experiment {i+1} out of {NB_REP}")
@@ -102,7 +107,7 @@ def understand_variance(result_file="variance_understanding.csv"):
             )
 
             res_ref = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=10, ref_speed=10
+                td_list, cluster_max_size=1, ref_speed=10
             )
             ref_acc = np.mean(
                 [eval_dico[td] in candidates for td, candidates in res_ref.items()]
@@ -161,7 +166,7 @@ def understand_variance(result_file="variance_understanding.csv"):
             )
 
             res_ref = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=10, ref_speed=10
+                td_list, cluster_max_size=1, ref_speed=10
             )
             ref_acc = np.mean(
                 [eval_dico[td] in candidates for td, candidates in res_ref.items()]
@@ -272,7 +277,7 @@ def cluster_size_statistics(result_file="cluster_size.csv"):
             "Average acc",
             "Cluster sizes",
         ]
-        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for cluster_max_size, results in cluster_results.items():
             writer.writerow(
@@ -312,7 +317,7 @@ def base_results(result_file="base_attack.csv"):
             "Nb queries known",
             "Base acc",
         ]
-        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         enron = extract_sent_mail_contents()
         for (i, (voc_size, nb_known_queries)) in enumerate(experiment_params):
@@ -386,10 +391,9 @@ def attack_comparison(result_file="attack_comparison.csv"):
             "Nb queries seen",
             "Nb queries known",
             "Base acc",
-            "Acc with cluster",
             "Acc with refinement",
         ]
-        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         enron = extract_sent_mail_contents()
         for (i, nb_known_queries) in enumerate(experiment_params):
@@ -432,21 +436,16 @@ def attack_comparison(result_file="attack_comparison.csv"):
 
             results = matchmaker.predict(td_list, k=1)
             base_acc = np.mean(
-                [eval_dico[td] in candidates for td, candidates in results.items()]
-            )
-
-            results = dict(matchmaker._sub_pred(0, td_list, cluster_max_size=10))
-            clust_acc = np.mean(
-                [eval_dico[td] in candidates for td, candidates in results.items()]
+                [eval_dico[td] == candidates[0] for td, candidates in results.items()]
             )
 
             ref_speed = int(0.05 * queryset_size)
 
             results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=10, ref_speed=ref_speed
+                td_list, cluster_max_size=1, ref_speed=ref_speed
             )
             ref_acc = np.mean(
-                [eval_dico[td] in candidates for td, candidates in results.items()]
+                [eval_dico[td] == candidates[0] for td, candidates in results.items()]
             )
 
             writer.writerow(
@@ -458,7 +457,6 @@ def attack_comparison(result_file="attack_comparison.csv"):
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
                     "Base acc": base_acc,
-                    "Acc with cluster": clust_acc,
                     "Acc with refinement": ref_acc,
                 }
             )
@@ -492,7 +490,7 @@ def document_set_results(result_file="document_set.csv"):
             "Nb queries known",
             "Acc",
         ]
-        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         i = 0
         for extractor, dataset in email_extractors:
@@ -539,7 +537,7 @@ def document_set_results(result_file="document_set.csv"):
 
                 ref_speed = int(0.05 * queryset_size)
                 results = matchmaker.predict_with_refinement(
-                    td_list, cluster_max_size=10, ref_speed=ref_speed
+                    td_list, cluster_max_size=1, ref_speed=ref_speed
                 )
                 ref_acc = np.mean(
                     [eval_dico[td] in candidates for td, candidates in results.items()]
@@ -582,7 +580,7 @@ def countermeasure_results(result_file="countermeasures.csv"):
             "Nb queries known",
             "QueRyvolution acc",
         ]
-        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         enron = extract_sent_mail_contents()
         nb_known_queries = 15
@@ -627,7 +625,7 @@ def countermeasure_results(result_file="countermeasures.csv"):
 
             ref_speed = int(0.05 * queryset_size)
             results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=10, ref_speed=ref_speed
+                td_list, cluster_max_size=1, ref_speed=ref_speed
             )
             ref_acc = np.mean(
                 [eval_dico[td] in candidates for td, candidates in results.items()]
@@ -657,7 +655,7 @@ def generalization(result_file="generalization.csv"):
             "Nb queries known",
             "QueRyvolution acc",
         ]
-        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         enron = extract_sent_mail_contents()
         voc_size = 300
@@ -702,7 +700,7 @@ def generalization(result_file="generalization.csv"):
             )
 
             results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=10, ref_speed=5
+                td_list, cluster_max_size=1, ref_speed=5
             )
             ref_acc = np.mean(
                 [eval_dico[td] in candidates for td, candidates in results.items()]
@@ -756,7 +754,7 @@ def generalization(result_file="generalization.csv"):
             )
 
             results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=10, ref_speed=5
+                td_list, cluster_max_size=1, ref_speed=5
             )
             ref_acc = np.mean(
                 [eval_dico[td] in candidates for td, candidates in results.items()]
@@ -794,7 +792,7 @@ def query_distrib_results(result_file="query_distrib.csv"):
             "Nb queries known",
             "QueRyvolution acc",
         ]
-        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         enron = extract_sent_mail_contents()
         nb_known_queries = 15
@@ -840,7 +838,7 @@ def query_distrib_results(result_file="query_distrib.csv"):
 
             ref_speed = int(0.05 * queryset_size)
             results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=10, ref_speed=ref_speed
+                td_list, cluster_max_size=1, ref_speed=ref_speed
             )
             ref_acc = np.mean(
                 [eval_dico[td] in candidates for td, candidates in results.items()]
@@ -875,7 +873,7 @@ def usecase_example(result_file="usecase.csv"):
             "Nb queries known",
             "QueRyvolution Acc",
         ]
-        writer = csv.DictWriter(csvfile, delimiter=";", fieldnames=fieldnames)
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for i in range(NB_REP):
             logger.info(f"Experiment {i+1} out of {NB_REP}")
@@ -932,7 +930,7 @@ def usecase_example(result_file="usecase.csv"):
             )
 
             res_ref = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=10, ref_speed=10
+                td_list, cluster_max_size=1, ref_speed=10
             )
             ref_acc = np.mean(
                 [eval_dico[td] in candidates for td, candidates in res_ref.items()]
@@ -947,5 +945,418 @@ def usecase_example(result_file="usecase.csv"):
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
                     "QueRyvolution Acc": ref_acc,
+                }
+            )
+
+
+def similar_dataset_size(result_file="similar_dataset_size.csv"):
+    experiment_params = [
+        0.1 * (j + 1) for j in range(10) for _k in range(NB_REP)
+    ]  # size of the attacker document set
+
+    voc_size = 1000
+    with open(result_file, "w", newline="") as csvfile:
+        fieldnames = [
+            "Nb similar docs",
+            "Nb server docs",
+            "Similar voc size",
+            "Server voc size",
+            "Nb queries seen",
+            "Nb queries known",
+            "Ref acc",
+        ]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        enron = extract_sent_mail_contents()
+        for (i, attacker_size_ratio) in enumerate(experiment_params):
+            logger.info(f"Experiment {i+1} out of {len(experiment_params)}")
+            similar_docs, stored_docs = split_df(dframe=enron, frac=0.4)
+            similar_docs, _ = split_df(dframe=similar_docs, frac=attacker_size_ratio)
+            queryset_size = int(voc_size * 0.15)
+
+            similar_extractor = KeywordExtractor(similar_docs, voc_size, 1)
+            real_extractor = QueryResultExtractor(stored_docs, voc_size, 1)
+
+            query_array, query_voc = real_extractor.get_fake_queries(queryset_size)
+
+            known_queries = generate_known_queries(
+                similar_wordlist=similar_extractor.get_sorted_voc(),
+                stored_wordlist=query_voc,
+                nb_queries=15,
+            )
+
+            td_voc = []
+            temp_known = {}
+            eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
+            for keyword in query_voc:
+                fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
+                td_voc.append(fake_trapdoor)
+                if known_queries.get(keyword):
+                    temp_known[fake_trapdoor] = keyword
+                eval_dico[fake_trapdoor] = keyword
+            known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
+
+            matchmaker = KeywordTrapdoorMatchmaker(
+                keyword_occ_array=similar_extractor.occ_array,
+                keyword_sorted_voc=similar_extractor.get_sorted_voc(),
+                trapdoor_occ_array=query_array,
+                trapdoor_sorted_voc=td_voc,
+                known_queries=known_queries,
+            )
+            td_list = list(
+                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+            )
+
+            ref_speed = int(0.05 * queryset_size)
+
+            results = matchmaker.predict_with_refinement(
+                td_list, cluster_max_size=1, ref_speed=ref_speed
+            )
+            ref_acc = np.mean(
+                [eval_dico[td] == candidates[0] for td, candidates in results.items()]
+            )
+
+            writer.writerow(
+                {
+                    "Nb similar docs": similar_extractor.occ_array.shape[0],
+                    "Nb server docs": real_extractor.occ_array.shape[0],
+                    "Similar voc size": voc_size,
+                    "Server voc size": voc_size,
+                    "Nb queries seen": queryset_size,
+                    "Nb queries known": 15,
+                    "Ref acc": ref_acc,
+                }
+            )
+
+
+def similar_metric(result_file="similar_metric.csv"):
+    experiment_params = [
+        0.1 * (j + 1) for j in range(10) for _k in range(NB_REP)
+    ]  # size of the attacker document set
+
+    epsilon_sim = lambda coocc_1, coocc_2: np.linalg.norm(coocc_1 - coocc_2)
+    voc_size = 1000
+    with open(result_file, "w", newline="") as csvfile:
+        fieldnames = [
+            "Nb similar docs",
+            "Nb server docs",
+            "Server voc size",
+            "Similarity",
+        ]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        enron = extract_sent_mail_contents()
+
+        extractor = KeywordExtractor(enron, voc_size, 1)
+        occ_mat = extractor.occ_array
+        n_tot = extractor.occ_array.shape[0]
+
+        for (i, attacker_size_ratio) in enumerate(experiment_params):
+            logger.info(f"Experiment {i+1} out of {len(experiment_params)}")
+            choice_serv = np.random.choice(
+                range(n_tot), size=(int(n_tot * 0.6),), replace=False
+            )
+            ind_serv = np.zeros(n_tot, dtype=bool)
+            ind_serv[choice_serv] = True
+            serv_mat = occ_mat[ind_serv, :]
+            kw_mat = occ_mat[~ind_serv, :]
+            kw_max_docs = kw_mat.shape[0]
+
+            sub_choice_kw = np.random.choice(
+                range(kw_max_docs),
+                size=(int(kw_max_docs * attacker_size_ratio),),
+                replace=False,
+            )
+            coocc_td = serv_mat.T @ serv_mat / serv_mat.shape[0]
+            coocc_kw = (
+                kw_mat[sub_choice_kw, :].T
+                @ kw_mat[sub_choice_kw, :]
+                / kw_mat[sub_choice_kw, :].shape[0]
+            )
+
+            writer.writerow(
+                {
+                    "Nb similar docs": serv_mat.shape[0],
+                    "Nb server docs": len(sub_choice_kw),
+                    "Server voc size": voc_size,
+                    "Similarity": epsilon_sim(coocc_td, coocc_kw),
+                }
+            )
+
+
+def apache_by_year(result_file="apache_by_year.csv"):
+    experiment_params = [
+        j for j in [2003, 2005, 2007, 2009] for _k in range(NB_REP)
+    ]  # Year split for Apache
+
+    voc_size = 1000
+    with open(result_file, "w", newline="") as csvfile:
+        fieldnames = [
+            "Nb similar docs",
+            "Nb server docs",
+            "Year split",
+            "Similar voc size",
+            "Server voc size",
+            "Nb queries seen",
+            "Nb queries known",
+            "Ref acc",
+        ]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for (i, year_split) in enumerate(experiment_params):
+            logger.info(f"Experiment {i+1} out of {len(experiment_params)}")
+            stored_docs = extract_apache_ml_by_year(to_year=year_split)
+            similar_docs = extract_apache_ml_by_year(from_year=year_split)
+            queryset_size = int(voc_size * 0.15)
+
+            similar_extractor = KeywordExtractor(similar_docs, voc_size, 1)
+            real_extractor = QueryResultExtractor(stored_docs, voc_size, 1)
+
+            query_array, query_voc = real_extractor.get_fake_queries(queryset_size)
+
+            known_queries = generate_known_queries(
+                similar_wordlist=similar_extractor.get_sorted_voc(),
+                stored_wordlist=query_voc,
+                nb_queries=15,
+            )
+
+            td_voc = []
+            temp_known = {}
+            eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
+            for keyword in query_voc:
+                fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
+                td_voc.append(fake_trapdoor)
+                if known_queries.get(keyword):
+                    temp_known[fake_trapdoor] = keyword
+                eval_dico[fake_trapdoor] = keyword
+            known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
+
+            matchmaker = KeywordTrapdoorMatchmaker(
+                keyword_occ_array=similar_extractor.occ_array,
+                keyword_sorted_voc=similar_extractor.get_sorted_voc(),
+                trapdoor_occ_array=query_array,
+                trapdoor_sorted_voc=td_voc,
+                known_queries=known_queries,
+            )
+            td_list = list(
+                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+            )
+
+            ref_speed = int(0.05 * queryset_size)
+
+            results = matchmaker.predict_with_refinement(
+                td_list, cluster_max_size=1, ref_speed=ref_speed
+            )
+            ref_acc = np.mean(
+                [eval_dico[td] == candidates[0] for td, candidates in results.items()]
+            )
+
+            writer.writerow(
+                {
+                    "Nb similar docs": similar_extractor.occ_array.shape[0],
+                    "Nb server docs": real_extractor.occ_array.shape[0],
+                    "Year split": year_split,
+                    "Similar voc size": voc_size,
+                    "Server voc size": voc_size,
+                    "Nb queries seen": queryset_size,
+                    "Nb queries known": 15,
+                    "Ref acc": ref_acc,
+                }
+            )
+
+
+def apache_sim_by_year(result_file="apache_sim_by_year.csv"):
+    epsilon_sim = lambda coocc_1, coocc_2: np.linalg.norm(coocc_1 - coocc_2)
+    voc_size = 1000
+    with open(result_file, "w", newline="") as csvfile:
+        fieldnames = [
+            "Nb similar docs",
+            "Nb server docs",
+            "Year split",
+            "Server voc size",
+            "Similarity",
+        ]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for (i, year_split) in enumerate([2003, 2005, 2007, 2009]):
+            logger.info(f"Experiment {i+1} out of {len([2003, 2005, 2007, 2009])}")
+            stored_docs = extract_apache_ml_by_year(to_year=year_split)
+            similar_docs = extract_apache_ml_by_year(from_year=year_split)
+
+            real_extractor = QueryResultExtractor(stored_docs, voc_size)
+            sim_occ_mat = compute_occ_mat(
+                similar_docs, real_extractor.sorted_voc_with_occ
+            )
+
+            coocc_td = (
+                real_extractor.occ_array.T
+                @ real_extractor.occ_array
+                / real_extractor.occ_array.shape[0]
+            )
+            coocc_kw = sim_occ_mat.T @ sim_occ_mat / sim_occ_mat.shape[0]
+
+            writer.writerow(
+                {
+                    "Nb similar docs": sim_occ_mat.shape[0],
+                    "Nb server docs": real_extractor.occ_array.shape[0],
+                    "Year split": year_split,
+                    "Server voc size": voc_size,
+                    "Similarity": epsilon_sim(coocc_kw, coocc_td),
+                }
+            )
+
+
+def exact_voc_results(result_file="exact_voc.csv"):
+    voc_size = 1000
+    with open(result_file, "w", newline="") as csvfile:
+        fieldnames = [
+            "Nb similar docs",
+            "Nb server docs",
+            "Similar voc size",
+            "Server voc size",
+            "Nb queries seen",
+            "Nb queries known",
+            "Acc",
+        ]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+
+        emails = extract_sent_mail_contents()
+        extractor = KeywordExtractor(emails, voc_size, 1)
+        occ_mat = extractor.occ_array
+        n_tot = extractor.occ_array.shape[0]
+
+        for i in range(NB_REP):
+            logger.info(f"Experiment {i+1} out of {NB_REP}")
+            choice_serv = np.random.choice(
+                range(n_tot), size=(int(n_tot * 0.6),), replace=False
+            )
+            ind_serv = np.zeros(n_tot, dtype=bool)
+            ind_serv[choice_serv] = True
+            serv_mat = occ_mat[ind_serv, :]
+            kw_mat = occ_mat[~ind_serv, :]
+
+            queryset_size = 300
+            voc = list(extractor.get_sorted_voc())
+            queries_ind = np.random.choice(len(voc), queryset_size, replace=False)
+            queries = [voc[ind] for ind in queries_ind]
+            known_queries = generate_known_queries(
+                similar_wordlist=voc, stored_wordlist=queries, nb_queries=15
+            )
+
+            td_voc = []
+            temp_known = {}
+            eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
+            for keyword in queries:
+                fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
+                td_voc.append(fake_trapdoor)
+                if known_queries.get(keyword):
+                    temp_known[fake_trapdoor] = keyword
+                eval_dico[fake_trapdoor] = keyword
+            known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
+
+            matchmaker = KeywordTrapdoorMatchmaker(
+                keyword_occ_array=kw_mat,
+                keyword_sorted_voc=voc,
+                trapdoor_occ_array=serv_mat[:, queries_ind],
+                trapdoor_sorted_voc=td_voc,
+                known_queries=known_queries,
+            )
+
+            td_list = list(set(eval_dico.keys()).difference(list(known_queries.keys())))
+
+            ref_speed = int(0.05 * queryset_size)
+
+            results = matchmaker.predict_with_refinement(
+                td_list, cluster_max_size=1, ref_speed=ref_speed
+            )
+            ref_acc = np.mean(
+                [eval_dico[td] == candidates[0] for td, candidates in results.items()]
+            )
+
+            writer.writerow(
+                {
+                    "Nb similar docs": kw_mat.shape[0],
+                    "Nb server docs": serv_mat.shape[0],
+                    "Similar voc size": voc_size,
+                    "Server voc size": voc_size,
+                    "Nb queries seen": queryset_size,
+                    "Nb queries known": 15,
+                    "Acc": ref_acc,
+                }
+            )
+
+
+def enron_apache_results(result_file="enron_apache.csv"):
+    voc_size = 1000
+    with open(result_file, "w", newline="") as csvfile:
+        fieldnames = [
+            "Nb similar docs",
+            "Nb server docs",
+            "Similar voc size",
+            "Server voc size",
+            "Nb queries seen",
+            "Nb queries known",
+            "Acc",
+        ]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+
+        enron = extract_sent_mail_contents()
+        apache = extract_apache_ml()
+        similar_extractor = KeywordExtractor(enron, voc_size, 1)
+        real_extractor = QueryResultExtractor(apache, voc_size, 1)
+
+        for i in range(NB_REP):
+            logger.info(f"Experiment {i+1} out of {NB_REP}")
+            queryset_size = 300
+            query_array, query_voc = real_extractor.get_fake_queries(queryset_size)
+
+            known_queries = generate_known_queries(
+                similar_wordlist=similar_extractor.get_sorted_voc(),
+                stored_wordlist=query_voc,
+                nb_queries=15,
+            )
+
+            td_voc = []
+            temp_known = {}
+            eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
+            for keyword in query_voc:
+                fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
+                td_voc.append(fake_trapdoor)
+                if known_queries.get(keyword):
+                    temp_known[fake_trapdoor] = keyword
+                eval_dico[fake_trapdoor] = keyword
+            known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
+
+            matchmaker = KeywordTrapdoorMatchmaker(
+                keyword_occ_array=similar_extractor.occ_array,
+                keyword_sorted_voc=similar_extractor.get_sorted_voc(),
+                trapdoor_occ_array=query_array,
+                trapdoor_sorted_voc=td_voc,
+                known_queries=known_queries,
+            )
+            td_list = list(
+                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+            )
+
+            ref_speed = int(0.05 * queryset_size)
+
+            results = matchmaker.predict_with_refinement(
+                td_list, cluster_max_size=1, ref_speed=ref_speed
+            )
+            ref_acc = np.mean(
+                [eval_dico[td] == candidates[0] for td, candidates in results.items()]
+            )
+
+            writer.writerow(
+                {
+                    "Nb similar docs": similar_extractor.occ_array.shape[0],
+                    "Nb server docs": real_extractor.occ_array.shape[0],
+                    "Similar voc size": voc_size,
+                    "Server voc size": voc_size,
+                    "Nb queries seen": queryset_size,
+                    "Nb queries known": 15,
+                    "Acc": ref_acc,
                 }
             )

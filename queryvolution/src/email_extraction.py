@@ -44,7 +44,7 @@ def get_body_from_mboxmsg(msg):
 
 
 def extract_2_enron_mailboxes(
-    maildir_directory="../maildir/"
+    maildir_directory="../maildir/",
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     path = os.path.expanduser(maildir_directory)
 
@@ -98,4 +98,21 @@ def extract_apache_ml(maildir_directory="../apache_ml/") -> pd.DataFrame:
             mail_content = get_body_from_mboxmsg(mail)
             mail_contents.append(mail_content)
             mail_ids.append(mail["Message-ID"])
+    return pd.DataFrame(data={"filename": mail_ids, "mail_body": mail_contents})
+
+
+def extract_apache_ml_by_year(
+    from_year=2002, to_year=2012, maildir_directory="../apache_ml/"
+) -> pd.DataFrame:
+    path = os.path.expanduser(maildir_directory)
+    mail_contents = []
+    mail_ids = []
+
+    for year in range(from_year, to_year):
+        mails = glob.glob(f"{path}/{year}*")
+        for mbox_path in tqdm.tqdm(iterable=mails, desc="Reading the emails"):
+            for mail in mailbox.mbox(mbox_path):
+                mail_content = get_body_from_mboxmsg(mail)
+                mail_contents.append(mail_content)
+                mail_ids.append(mail["Message-ID"])
     return pd.DataFrame(data={"filename": mail_ids, "mail_body": mail_contents})
