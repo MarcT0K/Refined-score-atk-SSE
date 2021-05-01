@@ -31,7 +31,7 @@ DocumentSetExtraction = {
 
 
 def attack_procedure(*args, **kwargs):
-    """Procedure to simulate an inference attack."""
+    """Procedure to simulate a refined score attack."""
     setup_logger()
     # Params
     logger.debug("PARAMETERS:")
@@ -131,7 +131,7 @@ def attack_procedure(*args, **kwargs):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Evaluation")
+    parser = argparse.ArgumentParser(description="Score attack simulator")
     parser.add_argument(
         "--similar-voc-size",
         type=int,
@@ -142,7 +142,7 @@ if __name__ == "__main__":
         "--server-voc-size",
         type=int,
         default=1000,
-        help="Size of the vocabulary stored in the server.",
+        help="Size of the 'queryable' vocabulary.",
     )
     parser.add_argument(
         "--queryset-size",
@@ -171,7 +171,10 @@ if __name__ == "__main__":
 
     params = parser.parse_args()
     assert (
-        params.nb_known_queries > 0 and params.nb_known_queries <= params.queryset_size
+        params.nb_known_queries > 0
+        and params.nb_known_queries <= params.queryset_size
+        and params.queryset_size < params.server_voc_size
+        and params.similar_voc_size > 0
     )
 
     attack_procedure(**vars(params))

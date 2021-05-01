@@ -2,7 +2,7 @@
 import math
 import random
 
-from typing import List
+from typing import List, Dict, Tuple
 
 import colorlog
 import numpy as np
@@ -14,7 +14,7 @@ logger = colorlog.getLogger("Refined Score attack")
 
 
 class QueryResultExtractor(KeywordExtractor):
-    """Just a keyword extractor augmented with a query generator.
+    """A keyword extractor augmented with a query generator.
     It corresponds to the index in the server. The fake queries are
     seen by the attacker.
     """
@@ -40,7 +40,7 @@ class QueryResultExtractor(KeywordExtractor):
     def __str__(self):
         return "Basic"
 
-    def _generate_random_sample(self, size=1) -> dict:
+    def _generate_random_sample(self, size: int = 1) -> List[int]:
         """Generate a sample with unique element thanks to the random variable
         define in the __init__.
 
@@ -48,7 +48,7 @@ class QueryResultExtractor(KeywordExtractor):
             size {int} -- Size of the sample of random queries (default: {1})
 
         Returns:
-            sample_list -- List of indices picked at random
+            List[int]-- List of indices picked at random
         """
         sample_set = set(self._rv.rvs(size=size) - 1)
         queries_remaining = size - len(sample_set)
@@ -62,7 +62,9 @@ class QueryResultExtractor(KeywordExtractor):
 
         return sample_list
 
-    def get_fake_queries(self, size=1, hide_nb_files=True) -> dict:
+    def get_fake_queries(
+        self, size=1, hide_nb_files=True
+    ) -> Tuple[np.array, List[str]]:
         logger.info("Generating fake queries")
         sample_list = self._generate_random_sample(size=size)
 
@@ -79,8 +81,17 @@ class QueryResultExtractor(KeywordExtractor):
 
 
 class ObfuscatedResultExtractor(QueryResultExtractor):
+    """Class that inherits the QueryResultExtractor and only add an access pattern obfuscation(=countermeasure).
+
+    Ref: G.Chen, T.Lai, M.K.Reiter and Y. Zhang. Differentially private access patterns for searchable
+    symmetric encryption. 2018.
+    """
+
     def __init__(self, *args, m=6, p=0.88703, q=0.04416, **kwargs):
-        self.occ_array = np.array([])  # useless but pylint is happy now :)
+        """Initialize the obfuscator. The obfuscation parameters are those presented as
+        optimal in the paper from Chen et al.
+        """
+        self.occ_array = np.array([])
         super().__init__(*args, **kwargs)
         self._p = p
         self._q = q
@@ -103,6 +114,11 @@ class ObfuscatedResultExtractor(QueryResultExtractor):
 
 
 class PaddedResultExtractor(QueryResultExtractor):
+    """Class that inherits the QueryResultExtractor and only add an access pattern padding (=countermeasure).
+
+    Ref: D.Cash, P.Grubbs, J.Perry and T. Ristenpart. Leakage-abuse attacks against searchable encryption. 2015
+    """
+
     def __init__(self, *args, n=500, **kwargs):
         self.occ_array = np.array([])
         super().__init__(*args, **kwargs)

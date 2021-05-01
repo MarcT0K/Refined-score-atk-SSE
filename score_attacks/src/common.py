@@ -5,7 +5,7 @@ import random
 from functools import reduce
 from contextlib import contextmanager
 from collections import Counter
-from typing import List
+from typing import List, Dict
 
 import colorlog
 import nltk
@@ -105,11 +105,11 @@ class KeywordExtractor:
         if not self.occ_array.any():
             raise ValueError("occurrence array is empty")
 
-    def get_sorted_voc(self):
+    def get_sorted_voc(self) -> List[str]:
         """Returns the sorted vocabulary without the occurrences.
 
         Returns:
-            List -- Word list
+            List[str] -- Word list
         """
         return dict(self.sorted_voc_with_occ).keys()
 
@@ -163,7 +163,7 @@ class KeywordExtractor:
 
     @staticmethod
     def build_occurrence_array(
-        sorted_voc_with_occ: List, freq_dict: dict
+        sorted_voc_with_occ: List, freq_dict: Dict
     ) -> pd.DataFrame:
         occ_list = []
         with poolcontext(processes=multiprocessing.cpu_count()) as pool:
@@ -195,7 +195,9 @@ def compute_occ_mat(corpus_df, sorted_voc_with_occ):
     )
 
 
-def generate_known_queries(similar_wordlist, stored_wordlist, nb_queries):
+def generate_known_queries(
+    similar_wordlist: List[str], stored_wordlist: List[str], nb_queries: int
+) -> Dict[str, str]:
     """Extract random keyword which are present in the similar document set
     and in the server. So the pairs (similar_keyword, trapdoor_keyword) will
     be considered as known queries. Since the trapdoor words are not hashed
@@ -211,7 +213,7 @@ def generate_known_queries(similar_wordlist, stored_wordlist, nb_queries):
         nb_queries {int} -- Number of queries wanted
 
     Returns:
-        dict[str,str] -- dictionary containing known queries
+        Dict[str,str] -- dictionary containing known queries
     """
     candidates = set(similar_wordlist).intersection(stored_wordlist)
     return {word: word for word in random.sample(candidates, nb_queries)}

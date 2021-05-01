@@ -2,7 +2,7 @@ import multiprocessing
 
 from functools import partial, reduce
 from itertools import permutations
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import colorlog
 import numpy as np
@@ -74,7 +74,9 @@ class ScoreAttacker:
 
         self._refresh_reduced_coocc()
 
-    def _compute_coocc_matrices(self, keyword_occ_array, trapdoor_occ_array):
+    def _compute_coocc_matrices(
+        self, keyword_occ_array: np.array, trapdoor_occ_array: np.array
+    ):
         logger.info("Computing cooccurrence matrices")
         # Can be improved using scipy's sparse matrices since coocc is symmetric
         self.kw_coocc = (
@@ -109,7 +111,7 @@ class ScoreAttacker:
 
         return self.number_similar_docs * nb_doc_ratio_estimator
 
-    def set_norm_ord(self, norm_ord):
+    def set_norm_ord(self, norm_ord: int):
         """Set the order of the norm used to compute the scores.
 
         Arguments:
@@ -119,15 +121,15 @@ class ScoreAttacker:
 
     @staticmethod
     def best_candidate_clustering(
-        sorted_scores,
+        sorted_scores: List[Tuple[str, float]],
         cluster_max_size=1,
         cluster_min_sensitivity=0.0,
-    ):
+    ) -> Tuple[List[str], float]:
         """From a list of scores, extracts the best-candidate cluster Smax using
         simple-linkage clustering.
 
         Arguments:
-            sorted_scores {List[float]} -- Sorted list of the scores
+            sorted_scores {List[Tuple[str, float]]} -- Sorted list of (keyword, score)
 
         Keyword Arguments:
             cluster_max_size {int} -- maximum size of the prediction clusters (default: {10})
@@ -135,8 +137,7 @@ class ScoreAttacker:
                                                 maximum-size cluster (default: {0.0})
 
         Returns:
-            Tuple[List[keyword],Optional[float]] -- Tuple containing the cluster of keywords and the
-                                                    cluster separation
+            Tuple[List[str],float] -- Tuple containing the cluster of keywords and the cluster separation
         """
         sorted_scores = sorted_scores[-(cluster_max_size + 1) :]
         diff_list = [
@@ -153,12 +154,14 @@ class ScoreAttacker:
 
         return (best_candidates, maximum_leap)
 
-    def _sub_pred(self, _ind, td_list, cluster_max_size=1):
+    def _sub_pred(
+        self, _ind: int, td_list: List[str], cluster_max_size=1
+    ) -> List[Tuple[str, List[str], float]]:
         """
         Sub-function used to parallelize the prediction.
 
         Returns:
-            List[Tuple[trapdoor,List[keyword]]] -- a list of tuples (trapdoor, prediction, certainty) or
+            List[Tuple[str,List[str], float]] -- a list of tuples (trapdoor, [prediction], certainty) or
                                                     (trapdoor, cluster of predictions, certainty)
         """
         if cluster_max_size < 1:
@@ -202,14 +205,14 @@ class ScoreAttacker:
                 prediction.append((trapdoor, [best_candidate], certainty))
         return prediction
 
-    def predict(self, trapdoor_list):
+    def predict(self, trapdoor_list: List[str]) -> Dict[str, List[str]]:
         """
         Returns a prediction for each trapdoor in the list. No refinement. No clustering.
         Arguments:
             trapdoor_list {List[str]} -- List of the trapdoors to match with a keyword
 
         Returns:
-            dict[trapdoor, predictions] -- dictionary with a list of k predictions for each trapdoor
+            Dict[str, List[str]]-- dictionary with a one-prediction list for each trapdoor
         """
         predictions = {}
         nb_cores = multiprocessing.cpu_count()
@@ -224,20 +227,22 @@ class ScoreAttacker:
             predictions = {td: kw for td, kw, _certainty in pred_list}
         return predictions
 
-    def predict_with_refinement(self, trapdoor_list, cluster_max_size=1, ref_speed=0):
+    def predict_with_refinement(
+        self, trapdoor_list: List[str], cluster_max_size=1, ref_speed=0
+    ) -> Dict[str, List[str]]:
         """Returns a cluster of predictions for each trapdoor using refinement.
 
-        When cluster_max_size = 1, it corresponds to the Refined Score attack.
+        When cluster_max_size = 1, it corresponds to the Refined Score attack without clustering.
 
         Arguments:
             trapdoor_list {List[str]} -- List of the trapdoors to match with a keyword
 
         Keyword Arguments:
             cluster_max_size {int} -- Maximum size of the clusters (default: {1})
-            ref_speed {int} -- Refinement speed, i.e. number of queries "learnt" after each iteration (default: {0})
+            ref_speed {int} -- Refinement speed, i.e. number of queries imputed at each iteration (default: {0})
 
         Returns:
-            dict[trapdoor, predictions] -- dictionary with a list of k predictions for each trapdoor
+            Dict[str, List[str]] -- dictionary with a prediction or cluster of predictions for each trapdoor
         """
         if ref_speed < 1:
             # Default refinement speed: 5% of the total number of trapdoors
