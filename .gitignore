@@ -1,2 +1,3 @@
 .vscode
 maildir
+*/__pycache__/*
