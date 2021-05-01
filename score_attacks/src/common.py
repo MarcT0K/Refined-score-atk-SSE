@@ -20,7 +20,7 @@ from nltk.tokenize import sent_tokenize, word_tokenize
 nltk.download("stopwords")
 nltk.download("punkt")
 
-logger = colorlog.getLogger("QueRyvolution")
+logger = colorlog.getLogger("Refined Score attack")
 
 
 def setup_logger():

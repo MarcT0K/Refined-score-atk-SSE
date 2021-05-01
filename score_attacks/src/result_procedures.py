@@ -5,27 +5,27 @@ import hashlib
 import colorlog
 import numpy as np
 
-from queryvolution.src.common import (
+from .common import (
     KeywordExtractor,
     generate_known_queries,
     compute_occ_mat,
 )
-from queryvolution.src.email_extraction import (
+from .email_extraction import (
     split_df,
     extract_sent_mail_contents,
     extract_apache_ml,
     extract_2_enron_mailboxes,
     extract_apache_ml_by_year,
 )
-from queryvolution.src.query_generator import (
+from .query_generator import (
     QueryResultExtractor,
     ObfuscatedResultExtractor,
     PaddedResultExtractor,
 )
-from queryvolution.src.matchmaker import KeywordTrapdoorMatchmaker, GeneralMatchmaker
+from .attackers import ScoreAttacker, GeneralizedScoreAttacker
 
 
-logger = colorlog.getLogger("QueRyvolution")
+logger = colorlog.getLogger("Refined Score attack")
 NB_REP = 50
 
 
@@ -48,7 +48,7 @@ def understand_variance(result_file="variance_understanding.csv"):
             "Server voc size",
             "Nb queries seen",
             "Nb queries known",
-            "QueRyvolution Acc",
+            "Refined Score attack Acc",
         ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
@@ -95,7 +95,7 @@ def understand_variance(result_file="variance_understanding.csv"):
             query_voc = temp_voc
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            matchmaker = KeywordTrapdoorMatchmaker(
+            attacker = ScoreAttacker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
@@ -103,14 +103,12 @@ def understand_variance(result_file="variance_understanding.csv"):
                 known_queries=known_queries,
             )
             td_list = list(
-                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+                set(eval_dico.keys()).difference(attacker._known_queries.keys())
             )
 
-            res_ref = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=1, ref_speed=10
-            )
+            res_ref = attacker.predict_with_refinement(td_list, ref_speed=10)
             ref_acc = np.mean(
-                [eval_dico[td] in candidates for td, candidates in res_ref.items()]
+                [eval_dico[td] == candidates[0] for td, candidates in res_ref.items()]
             )
             writer.writerow(
                 {
@@ -121,7 +119,7 @@ def understand_variance(result_file="variance_understanding.csv"):
                     "Server voc size": server_voc_size,
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
-                    "QueRyvolution Acc": ref_acc,
+                    "Refined Score attack Acc": ref_acc,
                 }
             )
 
@@ -154,7 +152,7 @@ def understand_variance(result_file="variance_understanding.csv"):
             query_voc = temp_voc
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            matchmaker = KeywordTrapdoorMatchmaker(
+            attacker = ScoreAttacker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
@@ -162,14 +160,12 @@ def understand_variance(result_file="variance_understanding.csv"):
                 known_queries=known_queries,
             )
             td_list = list(
-                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+                set(eval_dico.keys()).difference(attacker._known_queries.keys())
             )
 
-            res_ref = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=1, ref_speed=10
-            )
+            res_ref = attacker.predict_with_refinement(td_list, ref_speed=10)
             ref_acc = np.mean(
-                [eval_dico[td] in candidates for td, candidates in res_ref.items()]
+                [eval_dico[td] == candidates[0] for td, candidates in res_ref.items()]
             )
             writer.writerow(
                 {
@@ -180,7 +176,7 @@ def understand_variance(result_file="variance_understanding.csv"):
                     "Server voc size": server_voc_size,
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
-                    "QueRyvolution Acc": ref_acc,
+                    "Refined Score attack Acc": ref_acc,
                 }
             )
 
@@ -242,7 +238,7 @@ def cluster_size_statistics(result_file="cluster_size.csv"):
         query_voc = temp_voc
         known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-        matchmaker = KeywordTrapdoorMatchmaker(
+        attacker = ScoreAttacker(
             keyword_occ_array=similar_extractor.occ_array,
             keyword_sorted_voc=similar_extractor.get_sorted_voc(),
             trapdoor_occ_array=query_array,
@@ -251,7 +247,7 @@ def cluster_size_statistics(result_file="cluster_size.csv"):
         )
 
         for cluster_max_size in max_cluster_sizes:
-            res_ref = matchmaker.predict_with_refinement(
+            res_ref = attacker.predict_with_refinement(
                 list(eval_dico.keys()), cluster_max_size=cluster_max_size, ref_speed=10
             )
             ref_acc = np.mean(
@@ -347,7 +343,7 @@ def base_results(result_file="base_attack.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            matchmaker = KeywordTrapdoorMatchmaker(
+            attacker = ScoreAttacker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
@@ -355,12 +351,12 @@ def base_results(result_file="base_attack.csv"):
                 known_queries=known_queries,
             )
             td_list = list(
-                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+                set(eval_dico.keys()).difference(attacker._known_queries.keys())
             )
 
-            results = matchmaker.predict(td_list, k=1)
+            results = attacker.predict(td_list)
             base_acc = np.mean(
-                [eval_dico[td] in candidates for td, candidates in results.items()]
+                [eval_dico[td] == candidates[0] for td, candidates in results.items()]
             )
 
             writer.writerow(
@@ -423,7 +419,7 @@ def attack_comparison(result_file="attack_comparison.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            matchmaker = KeywordTrapdoorMatchmaker(
+            attacker = ScoreAttacker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
@@ -431,19 +427,17 @@ def attack_comparison(result_file="attack_comparison.csv"):
                 known_queries=known_queries,
             )
             td_list = list(
-                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+                set(eval_dico.keys()).difference(attacker._known_queries.keys())
             )
 
-            results = matchmaker.predict(td_list, k=1)
+            results = attacker.predict(td_list)
             base_acc = np.mean(
                 [eval_dico[td] == candidates[0] for td, candidates in results.items()]
             )
 
             ref_speed = int(0.05 * queryset_size)
 
-            results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=1, ref_speed=ref_speed
-            )
+            results = attacker.predict_with_refinement(td_list, ref_speed=ref_speed)
             ref_acc = np.mean(
                 [eval_dico[td] == candidates[0] for td, candidates in results.items()]
             )
@@ -524,7 +518,7 @@ def document_set_results(result_file="document_set.csv"):
                     eval_dico[fake_trapdoor] = keyword
                 known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-                matchmaker = KeywordTrapdoorMatchmaker(
+                attacker = ScoreAttacker(
                     keyword_occ_array=similar_extractor.occ_array,
                     keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                     trapdoor_occ_array=query_array,
@@ -532,15 +526,13 @@ def document_set_results(result_file="document_set.csv"):
                     known_queries=known_queries,
                 )
                 td_list = list(
-                    set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+                    set(eval_dico.keys()).difference(attacker._known_queries.keys())
                 )
 
                 ref_speed = int(0.05 * queryset_size)
-                results = matchmaker.predict_with_refinement(
-                    td_list, cluster_max_size=1, ref_speed=ref_speed
-                )
+                results = attacker.predict_with_refinement(td_list, ref_speed=ref_speed)
                 ref_acc = np.mean(
-                    [eval_dico[td] in candidates for td, candidates in results.items()]
+                    [eval_dico[td] == candidates[0] for td, candidates in results.items()]
                 )
 
                 writer.writerow(
@@ -578,7 +570,7 @@ def countermeasure_results(result_file="countermeasures.csv"):
             "Similar/Server voc size",
             "Nb queries seen",
             "Nb queries known",
-            "QueRyvolution acc",
+            "Refined Score attack acc",
         ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
@@ -612,7 +604,7 @@ def countermeasure_results(result_file="countermeasures.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            matchmaker = KeywordTrapdoorMatchmaker(
+            attacker = ScoreAttacker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
@@ -620,15 +612,13 @@ def countermeasure_results(result_file="countermeasures.csv"):
                 known_queries=known_queries,
             )
             td_list = list(
-                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+                set(eval_dico.keys()).difference(attacker._known_queries.keys())
             )
 
             ref_speed = int(0.05 * queryset_size)
-            results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=1, ref_speed=ref_speed
-            )
+            results = attacker.predict_with_refinement(td_list, ref_speed=ref_speed)
             ref_acc = np.mean(
-                [eval_dico[td] in candidates for td, candidates in results.items()]
+                [eval_dico[td] == candidates[0] for td, candidates in results.items()]
             )
 
             writer.writerow(
@@ -639,7 +629,7 @@ def countermeasure_results(result_file="countermeasures.csv"):
                     "Similar/Server voc size": voc_size,
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
-                    "QueRyvolution acc": ref_acc,
+                    "Refined Score attack acc": ref_acc,
                 }
             )
 
@@ -653,7 +643,7 @@ def generalization(result_file="generalization.csv"):
             "Similar/Server voc size",
             "Nb queries seen",
             "Nb queries known",
-            "QueRyvolution acc",
+            "Refined Score attack acc",
         ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
@@ -687,7 +677,7 @@ def generalization(result_file="generalization.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            matchmaker = GeneralMatchmaker(
+            attacker = GeneralizedScoreAttacker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
@@ -696,14 +686,12 @@ def generalization(result_file="generalization.csv"):
                 coocc_ord=3,
             )
             td_list = list(
-                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+                set(eval_dico.keys()).difference(attacker._known_queries.keys())
             )
 
-            results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=1, ref_speed=5
-            )
+            results = attacker.predict_with_refinement(td_list, ref_speed=5)
             ref_acc = np.mean(
-                [eval_dico[td] in candidates for td, candidates in results.items()]
+                [eval_dico[td] == candidates[0] for td, candidates in results.items()]
             )
             writer.writerow(
                 {
@@ -713,7 +701,7 @@ def generalization(result_file="generalization.csv"):
                     "Similar/Server voc size": voc_size,
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
-                    "QueRyvolution acc": ref_acc,
+                    "Refined Score attack acc": ref_acc,
                 }
             )
 
@@ -742,7 +730,7 @@ def generalization(result_file="generalization.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            matchmaker = KeywordTrapdoorMatchmaker(
+            attacker = ScoreAttacker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
@@ -750,14 +738,12 @@ def generalization(result_file="generalization.csv"):
                 known_queries=known_queries,
             )
             td_list = list(
-                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+                set(eval_dico.keys()).difference(attacker._known_queries.keys())
             )
 
-            results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=1, ref_speed=5
-            )
+            results = attacker.predict_with_refinement(td_list, ref_speed=5)
             ref_acc = np.mean(
-                [eval_dico[td] in candidates for td, candidates in results.items()]
+                [eval_dico[td] == candidates[0] for td, candidates in results.items()]
             )
 
             writer.writerow(
@@ -768,7 +754,7 @@ def generalization(result_file="generalization.csv"):
                     "Similar/Server voc size": voc_size,
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
-                    "QueRyvolution acc": ref_acc,
+                    "Refined Score attack acc": ref_acc,
                 }
             )
 
@@ -790,7 +776,7 @@ def query_distrib_results(result_file="query_distrib.csv"):
             "Similar/Server voc size",
             "Nb queries seen",
             "Nb queries known",
-            "QueRyvolution acc",
+            "Refined Score attack acc",
         ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
@@ -825,7 +811,7 @@ def query_distrib_results(result_file="query_distrib.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            matchmaker = KeywordTrapdoorMatchmaker(
+            attacker = ScoreAttacker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
@@ -833,15 +819,13 @@ def query_distrib_results(result_file="query_distrib.csv"):
                 known_queries=known_queries,
             )
             td_list = list(
-                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+                set(eval_dico.keys()).difference(attacker._known_queries.keys())
             )
 
             ref_speed = int(0.05 * queryset_size)
-            results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=1, ref_speed=ref_speed
-            )
+            results = attacker.predict_with_refinement(td_list, ref_speed=ref_speed)
             ref_acc = np.mean(
-                [eval_dico[td] in candidates for td, candidates in results.items()]
+                [eval_dico[td] == candidates[0] for td, candidates in results.items()]
             )
 
             writer.writerow(
@@ -852,7 +836,7 @@ def query_distrib_results(result_file="query_distrib.csv"):
                     "Similar/Server voc size": voc_size,
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
-                    "QueRyvolution acc": ref_acc,
+                    "Refined Score attack acc": ref_acc,
                 }
             )
 
@@ -871,7 +855,7 @@ def usecase_example(result_file="usecase.csv"):
             "Server voc size",
             "Nb queries seen",
             "Nb queries known",
-            "QueRyvolution Acc",
+            "Refined Score attack Acc",
         ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
@@ -918,7 +902,7 @@ def usecase_example(result_file="usecase.csv"):
             query_voc = temp_voc
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            matchmaker = KeywordTrapdoorMatchmaker(
+            attacker = ScoreAttacker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
@@ -926,16 +910,14 @@ def usecase_example(result_file="usecase.csv"):
                 known_queries=known_queries,
             )
             td_list = list(
-                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+                set(eval_dico.keys()).difference(attacker._known_queries.keys())
             )
 
-            res_ref = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=1, ref_speed=10
-            )
+            res_ref = attacker.predict_with_refinement(td_list, ref_speed=10)
             ref_acc = np.mean(
-                [eval_dico[td] in candidates for td, candidates in res_ref.items()]
+                [eval_dico[td] == candidates[0] for td, candidates in res_ref.items()]
             )
-            logger.info(f"QueRyvolution accuracy: {ref_acc}")
+            logger.info(f"Refined Score attack accuracy: {ref_acc}")
             writer.writerow(
                 {
                     "Nb similar docs": similar_docs.shape[0],
@@ -944,7 +926,7 @@ def usecase_example(result_file="usecase.csv"):
                     "Server voc size": server_voc_size,
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
-                    "QueRyvolution Acc": ref_acc,
+                    "Refined Score attack Acc": ref_acc,
                 }
             )
 
@@ -996,7 +978,7 @@ def similar_dataset_size(result_file="similar_dataset_size.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            matchmaker = KeywordTrapdoorMatchmaker(
+            attacker = ScoreAttacker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
@@ -1004,14 +986,12 @@ def similar_dataset_size(result_file="similar_dataset_size.csv"):
                 known_queries=known_queries,
             )
             td_list = list(
-                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+                set(eval_dico.keys()).difference(attacker._known_queries.keys())
             )
 
             ref_speed = int(0.05 * queryset_size)
 
-            results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=1, ref_speed=ref_speed
-            )
+            results = attacker.predict_with_refinement(td_list, ref_speed=ref_speed)
             ref_acc = np.mean(
                 [eval_dico[td] == candidates[0] for td, candidates in results.items()]
             )
@@ -1084,128 +1064,6 @@ def similar_metric(result_file="similar_metric.csv"):
             )
 
 
-def apache_by_year(result_file="apache_by_year.csv"):
-    experiment_params = [
-        j for j in [2003, 2005, 2007, 2009] for _k in range(NB_REP)
-    ]  # Year split for Apache
-
-    voc_size = 1000
-    with open(result_file, "w", newline="") as csvfile:
-        fieldnames = [
-            "Nb similar docs",
-            "Nb server docs",
-            "Year split",
-            "Similar voc size",
-            "Server voc size",
-            "Nb queries seen",
-            "Nb queries known",
-            "Ref acc",
-        ]
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        for (i, year_split) in enumerate(experiment_params):
-            logger.info(f"Experiment {i+1} out of {len(experiment_params)}")
-            stored_docs = extract_apache_ml_by_year(to_year=year_split)
-            similar_docs = extract_apache_ml_by_year(from_year=year_split)
-            queryset_size = int(voc_size * 0.15)
-
-            similar_extractor = KeywordExtractor(similar_docs, voc_size, 1)
-            real_extractor = QueryResultExtractor(stored_docs, voc_size, 1)
-
-            query_array, query_voc = real_extractor.get_fake_queries(queryset_size)
-
-            known_queries = generate_known_queries(
-                similar_wordlist=similar_extractor.get_sorted_voc(),
-                stored_wordlist=query_voc,
-                nb_queries=15,
-            )
-
-            td_voc = []
-            temp_known = {}
-            eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
-            for keyword in query_voc:
-                fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
-                td_voc.append(fake_trapdoor)
-                if known_queries.get(keyword):
-                    temp_known[fake_trapdoor] = keyword
-                eval_dico[fake_trapdoor] = keyword
-            known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
-
-            matchmaker = KeywordTrapdoorMatchmaker(
-                keyword_occ_array=similar_extractor.occ_array,
-                keyword_sorted_voc=similar_extractor.get_sorted_voc(),
-                trapdoor_occ_array=query_array,
-                trapdoor_sorted_voc=td_voc,
-                known_queries=known_queries,
-            )
-            td_list = list(
-                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
-            )
-
-            ref_speed = int(0.05 * queryset_size)
-
-            results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=1, ref_speed=ref_speed
-            )
-            ref_acc = np.mean(
-                [eval_dico[td] == candidates[0] for td, candidates in results.items()]
-            )
-
-            writer.writerow(
-                {
-                    "Nb similar docs": similar_extractor.occ_array.shape[0],
-                    "Nb server docs": real_extractor.occ_array.shape[0],
-                    "Year split": year_split,
-                    "Similar voc size": voc_size,
-                    "Server voc size": voc_size,
-                    "Nb queries seen": queryset_size,
-                    "Nb queries known": 15,
-                    "Ref acc": ref_acc,
-                }
-            )
-
-
-def apache_sim_by_year(result_file="apache_sim_by_year.csv"):
-    epsilon_sim = lambda coocc_1, coocc_2: np.linalg.norm(coocc_1 - coocc_2)
-    voc_size = 1000
-    with open(result_file, "w", newline="") as csvfile:
-        fieldnames = [
-            "Nb similar docs",
-            "Nb server docs",
-            "Year split",
-            "Server voc size",
-            "Similarity",
-        ]
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        for (i, year_split) in enumerate([2003, 2005, 2007, 2009]):
-            logger.info(f"Experiment {i+1} out of {len([2003, 2005, 2007, 2009])}")
-            stored_docs = extract_apache_ml_by_year(to_year=year_split)
-            similar_docs = extract_apache_ml_by_year(from_year=year_split)
-
-            real_extractor = QueryResultExtractor(stored_docs, voc_size)
-            sim_occ_mat = compute_occ_mat(
-                similar_docs, real_extractor.sorted_voc_with_occ
-            )
-
-            coocc_td = (
-                real_extractor.occ_array.T
-                @ real_extractor.occ_array
-                / real_extractor.occ_array.shape[0]
-            )
-            coocc_kw = sim_occ_mat.T @ sim_occ_mat / sim_occ_mat.shape[0]
-
-            writer.writerow(
-                {
-                    "Nb similar docs": sim_occ_mat.shape[0],
-                    "Nb server docs": real_extractor.occ_array.shape[0],
-                    "Year split": year_split,
-                    "Server voc size": voc_size,
-                    "Similarity": epsilon_sim(coocc_kw, coocc_td),
-                }
-            )
-
-
 def exact_voc_results(result_file="exact_voc.csv"):
     voc_size = 1000
     with open(result_file, "w", newline="") as csvfile:
@@ -1255,7 +1113,7 @@ def exact_voc_results(result_file="exact_voc.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            matchmaker = KeywordTrapdoorMatchmaker(
+            attacker = ScoreAttacker(
                 keyword_occ_array=kw_mat,
                 keyword_sorted_voc=voc,
                 trapdoor_occ_array=serv_mat[:, queries_ind],
@@ -1267,9 +1125,7 @@ def exact_voc_results(result_file="exact_voc.csv"):
 
             ref_speed = int(0.05 * queryset_size)
 
-            results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=1, ref_speed=ref_speed
-            )
+            results = attacker.predict_with_refinement(td_list, ref_speed=ref_speed)
             ref_acc = np.mean(
                 [eval_dico[td] == candidates[0] for td, candidates in results.items()]
             )
@@ -1329,7 +1185,7 @@ def enron_apache_results(result_file="enron_apache.csv"):
                 eval_dico[fake_trapdoor] = keyword
             known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
 
-            matchmaker = KeywordTrapdoorMatchmaker(
+            attacker = ScoreAttacker(
                 keyword_occ_array=similar_extractor.occ_array,
                 keyword_sorted_voc=similar_extractor.get_sorted_voc(),
                 trapdoor_occ_array=query_array,
@@ -1337,14 +1193,12 @@ def enron_apache_results(result_file="enron_apache.csv"):
                 known_queries=known_queries,
             )
             td_list = list(
-                set(eval_dico.keys()).difference(matchmaker._known_queries.keys())
+                set(eval_dico.keys()).difference(attacker._known_queries.keys())
             )
 
             ref_speed = int(0.05 * queryset_size)
 
-            results = matchmaker.predict_with_refinement(
-                td_list, cluster_max_size=1, ref_speed=ref_speed
-            )
+            results = attacker.predict_with_refinement(td_list, ref_speed=ref_speed)
             ref_acc = np.mean(
                 [eval_dico[td] == candidates[0] for td, candidates in results.items()]
             )

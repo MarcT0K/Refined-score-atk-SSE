@@ -8,9 +8,9 @@ import colorlog
 import numpy as np
 import scipy.stats as stats
 
-from queryvolution.src.common import KeywordExtractor
+from .common import KeywordExtractor
 
-logger = colorlog.getLogger("QueRyvolution")
+logger = colorlog.getLogger("Refined Score attack")
 
 
 class QueryResultExtractor(KeywordExtractor):

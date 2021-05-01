@@ -8,12 +8,12 @@ import colorlog
 import numpy as np
 import tqdm
 
-from queryvolution.src.common import poolcontext
+from .common import poolcontext
 
-logger = colorlog.getLogger("QueRyvolution")
+logger = colorlog.getLogger("Refined Score attack")
 
 
-class KeywordTrapdoorMatchmaker:
+class ScoreAttacker:
     def __init__(
         self,
         keyword_occ_array,
@@ -122,8 +122,6 @@ class KeywordTrapdoorMatchmaker:
         sorted_scores,
         cluster_max_size=1,
         cluster_min_sensitivity=0.0,
-        include_cluster_sep=False,
-        include_score=False,
     ):
         """From a list of scores, extracts the best-candidate cluster Smax using
         simple-linkage clustering.
@@ -135,14 +133,10 @@ class KeywordTrapdoorMatchmaker:
             cluster_max_size {int} -- maximum size of the prediction clusters (default: {10})
             cluster_min_sensitivity {float} -- minimum leap size. Otherwise returns the
                                                 maximum-size cluster (default: {0.0})
-            include_cluster_sep {bool} -- if True, returns also the cluster separation
-                                        from the rest of the points (default: {False})
-            include_score {bool} -- if True, returns also the score for each keyword
-                                    in the clusters (default: {False})
 
         Returns:
             Tuple[List[keyword],Optional[float]] -- Tuple containing the cluster of keywords and the
-                                                    cluster separation if include_cluster_sep == True
+                                                    cluster separation
         """
         sorted_scores = sorted_scores[-(cluster_max_size + 1) :]
         diff_list = [
@@ -153,36 +147,22 @@ class KeywordTrapdoorMatchmaker:
         if np.isnan(maximum_leap):
             maximum_leap = 0
         if maximum_leap >= cluster_min_sensitivity:
-            best_candidates = [
-                ((kw, _score) if include_score else kw)
-                for kw, _score in sorted_scores[ind_max_leap:]
-            ]
+            best_candidates = [kw for kw, _score in sorted_scores[ind_max_leap:]]
         else:
             best_candidates = sorted_scores[-cluster_max_size:]
-        if include_cluster_sep:
-            return (best_candidates, maximum_leap)
-        else:
-            return (best_candidates,)
 
-    def _sub_pred(
-        self,
-        _ind,
-        td_list,
-        k=0,
-        cluster_max_size=0,
-        cluster_min_sensitivity=0,
-        include_score=False,
-        include_cluster_sep=False,
-    ):
+        return (best_candidates, maximum_leap)
+
+    def _sub_pred(self, _ind, td_list, cluster_max_size=1):
         """
         Sub-function used to parallelize the prediction.
-        Specify either k for k-highest score mode or cluster_max_size for cluster mode
 
         Returns:
-            List[Tuple[trapdoor,List[keyword]]] -- a list of tuples (trapdoor, predictions)
+            List[Tuple[trapdoor,List[keyword]]] -- a list of tuples (trapdoor, prediction, certainty) or
+                                                    (trapdoor, cluster of predictions, certainty)
         """
-        if bool(k) == bool(cluster_max_size) or (k and include_cluster_sep):
-            raise ValueError("You have to choose either cluster mode or k-best mode")
+        if cluster_max_size < 1:
+            raise ValueError("The cluster size must be one or more.")
 
         prediction = []
         for trapdoor in td_list:
@@ -191,7 +171,7 @@ class KeywordTrapdoorMatchmaker:
             except KeyError:
                 logger.warning(f"Unknown trapdoor: {trapdoor}")
                 prediction.append(
-                    ((trapdoor, [], 0) if include_cluster_sep else (trapdoor, []))
+                    ((trapdoor, [], 0) if cluster_max_size > 1 else (trapdoor, [""], 0))
                 )
                 continue
             trapdoor_vec = self.td_reduced_coocc[trapdoor_ind]
@@ -210,57 +190,50 @@ class KeywordTrapdoorMatchmaker:
                 score_list.append((keyword, score))
             score_list.sort(key=lambda tup: tup[1])
 
-            if cluster_max_size:  # Cluster mode
-                cluster = self.best_candidate_clustering(
+            if cluster_max_size > 1:  # Cluster mode
+                kw_cluster, certainty = self.best_candidate_clustering(
                     score_list,
                     cluster_max_size=cluster_max_size,
-                    cluster_min_sensitivity=cluster_min_sensitivity,
-                    include_score=include_score,
-                    include_cluster_sep=include_cluster_sep,
                 )
-                prediction.append((trapdoor, *cluster))
-            else:  # k-highest-score mode
-                best_candidates = [
-                    ((kw, _score) if include_score else kw)
-                    for kw, _score in score_list[-k:]
-                ]
-                prediction.append((trapdoor, best_candidates))
+                prediction.append((trapdoor, kw_cluster, certainty))
+            else:  # No clustering
+                best_candidate = score_list[-1][0]
+                certainty = score_list[-1][1] - score_list[-2][1]
+                prediction.append((trapdoor, [best_candidate], certainty))
         return prediction
 
-    def predict(self, trapdoor_list, k=None):
+    def predict(self, trapdoor_list):
         """
         Returns a prediction for each trapdoor in the list. No refinement. No clustering.
         Arguments:
             trapdoor_list {List[str]} -- List of the trapdoors to match with a keyword
 
-        Keyword Arguments:
-            k {int} -- the number of highest score keyword wanted for each trapdoor (default: {None})
-
         Returns:
             dict[trapdoor, predictions] -- dictionary with a list of k predictions for each trapdoor
         """
-        if k is None:
-            k = len(self.kw_voc_info)
-        prediction = {}
+        predictions = {}
         nb_cores = multiprocessing.cpu_count()
         logger.info("Evaluating every possible keyword-trapdoor pair")
         with poolcontext(processes=nb_cores) as pool:
-            pred_func = partial(self._sub_pred, k=k)
+            pred_func = partial(self._sub_pred)
             results = pool.starmap(
                 pred_func,
                 enumerate([trapdoor_list[i::nb_cores] for i in range(nb_cores)]),
             )
-            prediction = dict(reduce(lambda x, y: x + y, results))
-        return prediction
+            pred_list = reduce(lambda x, y: x + y, results)
+            predictions = {td: kw for td, kw, _certainty in pred_list}
+        return predictions
 
     def predict_with_refinement(self, trapdoor_list, cluster_max_size=1, ref_speed=0):
         """Returns a cluster of predictions for each trapdoor using refinement.
+
+        When cluster_max_size = 1, it corresponds to the Refined Score attack.
 
         Arguments:
             trapdoor_list {List[str]} -- List of the trapdoors to match with a keyword
 
         Keyword Arguments:
-            cluster_max_size {int} -- Maximum size of the clusters (default: {10})
+            cluster_max_size {int} -- Maximum size of the clusters (default: {1})
             ref_speed {int} -- Refinement speed, i.e. number of queries "learnt" after each iteration (default: {0})
 
         Returns:
@@ -271,26 +244,25 @@ class KeywordTrapdoorMatchmaker:
             ref_speed = int(0.05 * len(self.td_voc_info))
         old_known = self._known_queries.copy()
         nb_cores = multiprocessing.cpu_count()
-        local_td_list = list(trapdoor_list)
+        unknown_td_list = list(trapdoor_list)
 
         final_results = []
         with poolcontext(processes=nb_cores) as pool, tqdm.tqdm(
             total=len(trapdoor_list), desc="Refining predictions"
         ) as pbar:
             while True:
-                prev_td_nb = len(local_td_list)
-                local_td_list = [
-                    td for td in local_td_list if td not in self._known_queries.keys()
+                prev_td_nb = len(unknown_td_list)
+                unknown_td_list = [
+                    td for td in unknown_td_list if td not in self._known_queries.keys()
                 ]  # Removes the known trapdoors
-                pbar.update(prev_td_nb - len(local_td_list))
+                pbar.update(prev_td_nb - len(unknown_td_list))
                 pred_func = partial(
                     self._sub_pred,
                     cluster_max_size=cluster_max_size,
-                    include_cluster_sep=True,
                 )
                 results = pool.starmap(  # Launch parallel predictions
                     pred_func,
-                    enumerate([local_td_list[i::nb_cores] for i in range(nb_cores)]),
+                    enumerate([unknown_td_list[i::nb_cores] for i in range(nb_cores)]),
                 )
                 results = reduce(lambda x, y: x + y, results)
 
@@ -301,13 +273,15 @@ class KeywordTrapdoorMatchmaker:
                 if (
                     len(single_point_results) < ref_speed
                 ):  # Not enough single-point predictions
-                    final_results = [(td, cluster) for td, cluster, _sep in results]
+                    final_results = [
+                        (td, candidates) for td, candidates, _sep in results
+                    ]
                     break
 
                 # Add the pseudo-known queries.
                 new_known = {
-                    td: list_candidates[-1]
-                    for td, list_candidates, _sep in single_point_results[-ref_speed:]
+                    td: candidates[-1]
+                    for td, candidates, _sep in single_point_results[-ref_speed:]
                 }
                 self._known_queries.update(new_known)
                 self._refresh_reduced_coocc()
@@ -323,65 +297,8 @@ class KeywordTrapdoorMatchmaker:
         self._refresh_reduced_coocc()
         return prediction
 
-    def base_accuracy(self, k=1, eval_dico=None):
-        """Compute the base accuracy on the evaluation dictionary.
-        No refinement. No clustering.
 
-        Keyword Arguments:
-            k {int} -- size of the prediction lists (default: {1})
-            eval_dico {dict[trapdoor, keyword]} -- Evaluation dictionary (default: {None})
-
-        Returns:
-            Tuple[float, dict[trapdoor, List[keyword]]] -- a tuple containing the accuracy and the prediction dictionary
-        """
-        assert k > 0
-        assert self.td_voc_info
-
-        if eval_dico is None:
-            logger.warning("Experimental setup is enabled.")
-            # Trapdoor vocabulary is not a list of tokens but directly the list of keywords.
-            local_eval_dico = {kw: kw for kw in self.td_voc_info.keys()}
-        else:
-            local_eval_dico = eval_dico
-            # Keys: Trapdoors; Values: Keywords
-        eval_trapdoors = list(local_eval_dico.keys())
-
-        res_dict = self.predict(trapdoor_list=eval_trapdoors, k=k)
-        match_list = [
-            eval_kw in res_dict[eval_td] for eval_td, eval_kw in local_eval_dico.items()
-        ]
-        recovery_rate = sum(match_list) / len(local_eval_dico)
-        return recovery_rate, res_dict
-
-    def queryvolution_accuracy(self, eval_dico=None):
-        """Compute the QueRyvolution accuracy on the evaluation dictionary.
-
-        Keyword Arguments:
-            eval_dico {dict[trapdoor, keyword]} -- Evaluation dictionary (default: {None})
-
-        Returns:
-            Tuple[float, dict[trapdoor, List[keyword]]] -- a tuple containing the accuracy and the prediction dictionary
-        """
-        assert self.td_voc_info
-
-        if eval_dico is None:
-            logger.warning("Experimental setup is enabled.")
-            # Trapdoor vocabulary is not a list of tokens but directly the list of keywords.
-            local_eval_dico = {kw: kw for kw in self.td_voc_info.keys()}
-        else:
-            local_eval_dico = eval_dico
-            # Keys: Trapdoors; Values: Keywords
-        eval_trapdoors = list(local_eval_dico.keys())
-
-        res_dict = self.predict_with_refinement(trapdoor_list=eval_trapdoors)
-        match_list = [
-            eval_kw in res_dict[eval_td] for eval_td, eval_kw in local_eval_dico.items()
-        ]
-        recovery_rate = sum(match_list) / len(local_eval_dico)
-        return recovery_rate, res_dict
-
-
-class GeneralMatchmaker(KeywordTrapdoorMatchmaker):
+class GeneralizedScoreAttacker(ScoreAttacker):
     """
     This class is just a basic POC. There are significant improvements and refactoring possible.
     """
@@ -389,9 +306,8 @@ class GeneralMatchmaker(KeywordTrapdoorMatchmaker):
     def _compute_coocc_matrices(
         self, keyword_occ_array, trapdoor_occ_array, coocc_ord=2
     ):
-        logger.info("Computing cooccurrence matrices")
-        # N-dim sparse matrix not implemented in Scipy
-        # Could be also improved if np.dot was implemented for N-dim
+        logger.info("Computing cooccurrence tensors")
+        # Could be also improved if np.dot was implemented for N-dim (using tensors)
         self.kw_coocc = np.zeros([len(self.kw_voc_info)] * coocc_ord)
         self.__recursive_coocc_computer(keyword_occ_array, "keyword")
         self.kw_coocc = self.kw_coocc / self.number_similar_docs

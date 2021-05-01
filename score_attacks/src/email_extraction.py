@@ -14,7 +14,7 @@ import pandas as pd
 import tqdm
 
 
-logger = colorlog.getLogger("QueRyvolution")
+logger = colorlog.getLogger("Refined Score attack")
 
 
 def split_df(dframe, frac=0.5):
