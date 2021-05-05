@@ -1,4 +1,4 @@
-"""Functions simulating the query and result harvesting of an attacker"""
+"""Classes simulating the query and result harvesting of an attacker"""
 import math
 import random
 

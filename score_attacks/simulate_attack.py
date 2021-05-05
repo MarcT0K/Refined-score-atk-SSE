@@ -166,7 +166,7 @@ if __name__ == "__main__":
         "--attack-dataset",
         type=str,
         default="enron",
-        help="Dataset used for the attack",
+        help=f"Dataset used for the attack (choices: {DocumentSetExtraction.keys()})",
     )
 
     params = parser.parse_args()

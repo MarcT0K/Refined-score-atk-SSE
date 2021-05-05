@@ -14,8 +14,6 @@ from .email_extraction import (
     split_df,
     extract_sent_mail_contents,
     extract_apache_ml,
-    extract_2_enron_mailboxes,
-    extract_apache_ml_by_year,
 )
 from .query_generator import (
     QueryResultExtractor,
@@ -532,7 +530,10 @@ def document_set_results(result_file="document_set.csv"):
                 ref_speed = int(0.05 * queryset_size)
                 results = attacker.predict_with_refinement(td_list, ref_speed=ref_speed)
                 ref_acc = np.mean(
-                    [eval_dico[td] == candidates[0] for td, candidates in results.items()]
+                    [
+                        eval_dico[td] == candidates[0]
+                        for td, candidates in results.items()
+                    ]
                 )
 
                 writer.writerow(
@@ -837,96 +838,6 @@ def query_distrib_results(result_file="query_distrib.csv"):
                     "Nb queries seen": queryset_size,
                     "Nb queries known": nb_known_queries,
                     "Refined Score attack acc": ref_acc,
-                }
-            )
-
-
-def usecase_example(result_file="usecase.csv"):
-    similar_voc_size = 500
-    server_voc_size = 500
-    queryset_size = 150
-    nb_known_queries = 15
-
-    with open(result_file, "w", newline="") as csvfile:
-        fieldnames = [
-            "Nb similar docs",
-            "Nb server docs",
-            "Similar voc size",
-            "Server voc size",
-            "Nb queries seen",
-            "Nb queries known",
-            "Refined Score attack Acc",
-        ]
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        for i in range(NB_REP):
-            logger.info(f"Experiment {i+1} out of {NB_REP}")
-
-            similar_docs, stored_docs = extract_2_enron_mailboxes()
-            logger.info("Extracting keywords from similar documents.")
-            similar_extractor = KeywordExtractor(similar_docs, similar_voc_size, 1)
-            logger.info("Extracting keywords from stored documents.")
-            real_extractor = QueryResultExtractor(stored_docs, server_voc_size, 1)
-
-            logger.info(f"Generating {queryset_size} queries from stored documents")
-            query_array, query_voc_plain = real_extractor.get_fake_queries(
-                queryset_size
-            )
-            del real_extractor
-
-            logger.debug(
-                f"Picking {nb_known_queries} known queries ({nb_known_queries/queryset_size*100}% of the queries)"
-            )
-
-            known_queries = generate_known_queries(  # Extracted with uniform law
-                similar_wordlist=similar_extractor.get_sorted_voc(),
-                stored_wordlist=query_voc_plain,
-                nb_queries=nb_known_queries,
-            )
-
-            logger.debug(
-                "Hashing the keywords of the stored documents (transforming them into trapdoor tokens)"
-            )
-            # Trapdoor token == convey no information about the corresponding keyword
-            temp_voc = []
-            temp_known = {}
-            eval_dico = {}  # Keys: Trapdoor tokens; Values: Keywords
-            for keyword in query_voc_plain:
-                # We replace each keyword of the trapdoor dictionary by its hash
-                # So the matchmaker truly ignores the keywords behind the trapdoors.
-                fake_trapdoor = hashlib.sha1(keyword.encode("utf-8")).hexdigest()
-                temp_voc.append(fake_trapdoor)
-                if known_queries.get(keyword):
-                    temp_known[fake_trapdoor] = keyword
-                eval_dico[fake_trapdoor] = keyword
-            query_voc = temp_voc
-            known_queries = temp_known  # Keys: Trapdoor tokens; Values: Keywords
-
-            attacker = ScoreAttacker(
-                keyword_occ_array=similar_extractor.occ_array,
-                keyword_sorted_voc=similar_extractor.get_sorted_voc(),
-                trapdoor_occ_array=query_array,
-                trapdoor_sorted_voc=query_voc,
-                known_queries=known_queries,
-            )
-            td_list = list(
-                set(eval_dico.keys()).difference(attacker._known_queries.keys())
-            )
-
-            res_ref = attacker.predict_with_refinement(td_list, ref_speed=10)
-            ref_acc = np.mean(
-                [eval_dico[td] == candidates[0] for td, candidates in res_ref.items()]
-            )
-            logger.info(f"Refined Score attack accuracy: {ref_acc}")
-            writer.writerow(
-                {
-                    "Nb similar docs": similar_docs.shape[0],
-                    "Nb server docs": stored_docs.shape[0],
-                    "Similar voc size": similar_voc_size,
-                    "Server voc size": server_voc_size,
-                    "Nb queries seen": queryset_size,
-                    "Nb queries known": nb_known_queries,
-                    "Refined Score attack Acc": ref_acc,
                 }
             )
 
