@@ -64,7 +64,7 @@ If you want to reproduce most results that are presented in the paper, you have 
 Before the publication of this repo, we tried to simplify as much as possible our function to only keep what is relevent in the paper. We also added **docstrings** and **typing** so it is easier for a reader to understand what the functions/classes do and how to use them.
 
 # Further questions
-Feel free to contact me (marc [dot] damie [at] etu [dot] utc [dot] fr) if you have some questions about the code or the attack itself (or if you spotted some bugs in our code).
+Feel free to contact me (marc [at] damie [dot] eu) if you have some questions about the code or the attack itself (or if you spotted some bugs in our code).
 
 # Known issues
 If you have the error `setup.sh: 1: set: Illegal option -` when executing `setup.sh`, this may be due to the file formatting. It happens when sending (via scp) a file from a Windows computer to a Linux server (Windows formatter using different hidden characters than Unix formatters). To solve this issue, on the Linux server, you just have to install dos2unix (via apt for Debian and Ubuntu) and launch `dos2unix setup.sh`. Then, the script should have the adequate format and should be executed successfully.
